@@ -1,5 +1,5 @@
 //
-//  RawCullSAM3App.swift
+//  RawCullApp.swift
 //  RawCullSAM3
 //
 //  Created by Thomas Evensen on 19/01/2026.

@@ -329,7 +329,7 @@ actor CoreAISAM3Provider: SubjectSegmentationProvider {
         }
 
         let maskBase = (batchIndex * queryCount + bestQuery.index) * pixelsPerQuery
-        let lowResolutionMask = output.predictedMasks[maskBase..<(maskBase + pixelsPerQuery)].map {
+        let lowResolutionMask = output.predictedMasks[maskBase ..< (maskBase + pixelsPerQuery)].map {
             sigmoid($0)
         }
 
@@ -346,17 +346,17 @@ actor CoreAISAM3Provider: SubjectSegmentationProvider {
 
         guard let provider = CGDataProvider(data: Data(pixels) as CFData),
               let image = CGImage(
-                width: width,
-                height: height,
-                bitsPerComponent: 8,
-                bitsPerPixel: 32,
-                bytesPerRow: width * 4,
-                space: CGColorSpaceCreateDeviceRGB(),
-                bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue),
-                provider: provider,
-                decode: nil,
-                shouldInterpolate: true,
-                intent: .defaultIntent,
+                  width: width,
+                  height: height,
+                  bitsPerComponent: 8,
+                  bitsPerPixel: 32,
+                  bytesPerRow: width * 4,
+                  space: CGColorSpaceCreateDeviceRGB(),
+                  bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue),
+                  provider: provider,
+                  decode: nil,
+                  shouldInterpolate: true,
+                  intent: .defaultIntent,
               )
         else {
             throw SubjectSegmentationError.decodeFailure
@@ -379,15 +379,14 @@ actor CoreAISAM3Provider: SubjectSegmentationProvider {
             return nil
         }
 
-        let presenceScore: Float
-        if output.presenceLogits.count > batchIndex {
-            presenceScore = sigmoid(output.presenceLogits[batchIndex])
+        let presenceScore: Float = if output.presenceLogits.count > batchIndex {
+            sigmoid(output.presenceLogits[batchIndex])
         } else {
-            presenceScore = 1
+            1
         }
 
         var best: (index: Int, score: Float)?
-        for queryIndex in 0..<queryCount {
+        for queryIndex in 0 ..< queryCount {
             let scoreIndex = batchIndex * queryCount + queryIndex
             let score = if useDirectScores {
                 output.predictedScores[scoreIndex]
@@ -418,7 +417,7 @@ actor CoreAISAM3Provider: SubjectSegmentationProvider {
 
         pixels.withUnsafeMutableBufferPointer { buffer in
             guard let baseAddress = buffer.baseAddress else { return }
-            for y in 0..<height {
+            for y in 0 ..< height {
                 let sourceY = max(0, min(Float(sourceHeight - 1), (Float(y) + 0.5) * scaleY - 0.5))
                 let y0 = Int(sourceY.rounded(.down))
                 let y1 = min(y0 + 1, sourceHeight - 1)
@@ -426,7 +425,7 @@ actor CoreAISAM3Provider: SubjectSegmentationProvider {
                 let row0 = y0 * sourceWidth
                 let row1 = y1 * sourceWidth
 
-                for x in 0..<width {
+                for x in 0 ..< width {
                     let sourceX = max(0, min(Float(sourceWidth - 1), (Float(x) + 0.5) * scaleX - 0.5))
                     let x0 = Int(sourceX.rounded(.down))
                     let x1 = min(x0 + 1, sourceWidth - 1)

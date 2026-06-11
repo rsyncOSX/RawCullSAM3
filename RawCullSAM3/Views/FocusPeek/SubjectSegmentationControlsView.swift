@@ -145,7 +145,7 @@ struct SubjectSegmentationControlsView: View {
             "Confidence: \(Int((diagnostics.confidence * 100).rounded()))%",
             "Input: \(sizeText(diagnostics.inputSize))",
             "Mask: \(sizeText(diagnostics.outputSize))",
-            "Elapsed: \(elapsedText(diagnostics.timing.totalMilliseconds))",
+            "Elapsed: \(elapsedText(diagnostics.timing.totalMilliseconds))"
         ].joined(separator: "\n")
     }
 }
@@ -258,7 +258,6 @@ private struct SubjectSegmentationDiagnosticsPopover: View {
         .frame(minWidth: 280, alignment: .leading)
     }
 
-    @ViewBuilder
     private func diagnosticsRow(_ title: String, _ value: String) -> some View {
         GridRow {
             Text(title)

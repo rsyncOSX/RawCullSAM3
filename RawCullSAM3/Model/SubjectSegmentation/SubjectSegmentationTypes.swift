@@ -1,7 +1,7 @@
 import CoreGraphics
 import Foundation
 
-nonisolated enum SubjectSegmentationPrompt: String, CaseIterable, Codable, Sendable, Identifiable {
+nonisolated enum SubjectSegmentationPrompt: String, CaseIterable, Codable, Identifiable {
     case subject
     case person
     case bird
@@ -9,7 +9,9 @@ nonisolated enum SubjectSegmentationPrompt: String, CaseIterable, Codable, Senda
     case animal
     case car
 
-    nonisolated var id: String { rawValue }
+    nonisolated var id: String {
+        rawValue
+    }
 
     nonisolated var title: String {
         switch self {
@@ -34,14 +36,14 @@ nonisolated enum SubjectSegmentationPrompt: String, CaseIterable, Codable, Senda
     }
 }
 
-nonisolated struct SubjectSegmentationTiming: Equatable, Sendable {
+nonisolated struct SubjectSegmentationTiming: Equatable {
     let preprocessMilliseconds: Double?
     let inferenceMilliseconds: Double?
     let postprocessMilliseconds: Double?
     let totalMilliseconds: Double?
 }
 
-nonisolated struct SubjectSegmentationDiagnostics: Equatable, Sendable {
+nonisolated struct SubjectSegmentationDiagnostics: Equatable {
     let modelVersion: String
     let prompt: SubjectSegmentationPrompt
     let confidence: Float
@@ -52,7 +54,7 @@ nonisolated struct SubjectSegmentationDiagnostics: Equatable, Sendable {
     let assetName: String?
 }
 
-nonisolated struct SubjectSegmentationResult: Sendable {
+nonisolated struct SubjectSegmentationResult {
     let fileID: UUID
     let requestID: UUID
     let prompt: SubjectSegmentationPrompt
@@ -65,7 +67,7 @@ nonisolated struct SubjectSegmentationResult: Sendable {
     let diagnostics: SubjectSegmentationDiagnostics
 }
 
-nonisolated enum SubjectSegmentationError: Error, Equatable, Sendable {
+nonisolated enum SubjectSegmentationError: Error, Equatable {
     case helperUnavailable
     case timeout
     case noMask
@@ -100,7 +102,7 @@ nonisolated enum SubjectSegmentationError: Error, Equatable, Sendable {
     }
 }
 
-nonisolated struct SubjectSegmentationRequest: Sendable {
+nonisolated struct SubjectSegmentationRequest {
     let requestID: UUID
     let fileID: UUID
     let prompt: SubjectSegmentationPrompt
@@ -118,7 +120,7 @@ nonisolated protocol SubjectSegmentationProvider: Sendable {
     func segment(_ request: SubjectSegmentationRequest) async throws -> SubjectSegmentationResult
 }
 
-nonisolated struct SubjectMaskCacheKey: Hashable, Sendable {
+nonisolated struct SubjectMaskCacheKey: Hashable {
     let fileID: UUID
     let prompt: SubjectSegmentationPrompt
     let modelVersion: String
@@ -127,6 +129,6 @@ nonisolated struct SubjectMaskCacheKey: Hashable, Sendable {
     let modificationDate: Date?
 }
 
-nonisolated struct SubjectMaskCacheEntry: Sendable {
+nonisolated struct SubjectMaskCacheEntry {
     let result: SubjectSegmentationResult
 }

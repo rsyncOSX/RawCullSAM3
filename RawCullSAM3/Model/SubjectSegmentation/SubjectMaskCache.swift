@@ -15,4 +15,3 @@ actor SubjectMaskCache {
         entries.removeAll()
     }
 }
-
