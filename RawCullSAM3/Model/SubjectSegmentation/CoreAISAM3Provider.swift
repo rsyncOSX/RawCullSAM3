@@ -22,10 +22,19 @@ actor CoreAISAM3Provider: SubjectSegmentationProvider {
         guard !Task.isCancelled else { throw SubjectSegmentationError.cancelled }
         let segmenter = try await loadSegmenter()
 
-        let response = try await segmenter.segment(
-            image: request.image,
-            prompt: request.prompt.query,
-        )
+        let response: SegmentationResponse
+        do {
+            response = try await segmenter.segment(
+                image: request.image,
+                prompt: request.prompt.query,
+            )
+        } catch let error as SubjectSegmentationError {
+            throw error
+        } catch {
+            throw SubjectSegmentationError.helperError(
+                "Core AI SAM3 inference failed: \(Self.message(for: error))",
+            )
+        }
         guard !Task.isCancelled else { throw SubjectSegmentationError.cancelled }
         guard let segment = response.segments.first else {
             throw SubjectSegmentationError.noMask
@@ -73,9 +82,43 @@ actor CoreAISAM3Provider: SubjectSegmentationProvider {
             )
         }
 
-        let loadedSegmenter = try await ImageSegmenter(resourcesAt: resourcesURL.path)
+        let loadedSegmenter: ImageSegmenter
+        do {
+            loadedSegmenter = try await ImageSegmenter(resourcesAt: resourcesURL.path)
+        } catch let error as SubjectSegmentationError {
+            throw error
+        } catch {
+            throw SubjectSegmentationError.helperError(
+                "Core AI SAM3 load failed: \(Self.loadFailureMessage(for: error, resourcesURL: resourcesURL))",
+            )
+        }
         segmenter = loadedSegmenter
         return loadedSegmenter
+    }
+
+    private nonisolated static func message(for error: Error) -> String {
+        let description = error.localizedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !description.isEmpty,
+           description != "The operation couldn’t be completed. (Swift.Error error 1.)" {
+            return description
+        }
+        return String(reflecting: error)
+    }
+
+    private nonisolated static func loadFailureMessage(for error: Error, resourcesURL: URL) -> String {
+        var message = message(for: error)
+        guard let assetName = assetName(in: resourcesURL),
+              assetName.hasSuffix(".aimodelc"),
+              assetName.contains(".h16c.")
+        else {
+            return message
+        }
+        message += """
+        . Selected SAM3 asset '\(assetName)' is a single-architecture compiled model. \
+        Re-export SAM3 and use sam3_float16.aimodel, or compile sam3_float16_source.aimodel \
+        for GPU/all supported architectures and update metadata.json assets.main.
+        """
+        return message
     }
 
     private nonisolated static func defaultResourcesURL(bundle: Bundle = .main) -> URL? {

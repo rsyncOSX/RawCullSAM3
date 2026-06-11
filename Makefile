@@ -10,7 +10,8 @@ DERIVED_DATA_ROOT ?= $(HOME)/Library/Developer/Xcode/DerivedData
 
 SAM3_BUNDLE_DIR = RawCullSAM3/Resources/Models/SAM3
 SAM3_COMPILE_ARCH ?= h16c
-SAM3_ASSET ?= sam3_float16_source.h16c.aimodelc
+SAM3_ASSET ?= sam3_float16.aimodel
+SAM3_GPU_ASSET ?= sam3_float16_source.gpu.aimodelc
 
 .DEFAULT_GOAL := release
 
@@ -37,11 +38,11 @@ build-debug:
 	@$(MAKE) print-debug-app
 
 verify-release-model:
-	@APP_BUNDLE="$$(find "$(DERIVED_DATA_ROOT)" -path "*/Build/Products/Release/$(APP).app" -type d -print -quit)"; \
+	@APP_BUNDLE="$$(find "$(DERIVED_DATA_ROOT)" -path "*/Build/Products/Release/$(APP).app" -not -path "*/Index.noindex/*" -type d -print -quit)"; \
 	$(MAKE) verify-model APP_BUNDLE="$$APP_BUNDLE"
 
 verify-debug-model:
-	@APP_BUNDLE="$$(find "$(DERIVED_DATA_ROOT)" -path "*/Build/Products/Debug/$(APP).app" -type d -print -quit)"; \
+	@APP_BUNDLE="$$(find "$(DERIVED_DATA_ROOT)" -path "*/Build/Products/Debug/$(APP).app" -not -path "*/Index.noindex/*" -type d -print -quit)"; \
 	$(MAKE) verify-model APP_BUNDLE="$$APP_BUNDLE"
 
 verify-model:
@@ -68,6 +69,9 @@ sam3-export:
 sam3-compile:
 	xcrun coreai-build compile $(SAM3_BUNDLE_DIR)/sam3_float16_source.aimodel --platform macOS --architecture $(SAM3_COMPILE_ARCH) --output $(SAM3_BUNDLE_DIR)
 
+sam3-compile-gpu:
+	xcrun coreai-build compile $(SAM3_BUNDLE_DIR)/sam3_float16_source.aimodel --platform macOS --preferred-compute gpu --output $(SAM3_BUNDLE_DIR)/$(SAM3_GPU_ASSET)
+
 sam3-compile-all:
 	xcrun coreai-build compile $(SAM3_BUNDLE_DIR)/sam3_float16_source.aimodel --platform macOS --output $(SAM3_BUNDLE_DIR)
 
@@ -78,10 +82,10 @@ clean:
 	rm -rf build
 
 print-release-app:
-	@find "$(DERIVED_DATA_ROOT)" -path "*/Build/Products/Release/$(APP).app" -type d -print -quit
+	@find "$(DERIVED_DATA_ROOT)" -path "*/Build/Products/Release/$(APP).app" -not -path "*/Index.noindex/*" -type d -print -quit
 
 print-debug-app:
-	@find "$(DERIVED_DATA_ROOT)" -path "*/Build/Products/Debug/$(APP).app" -type d -print -quit
+	@find "$(DERIVED_DATA_ROOT)" -path "*/Build/Products/Debug/$(APP).app" -not -path "*/Index.noindex/*" -type d -print -quit
 
 .PHONY: release debug build-release build-debug verify-release-model verify-debug-model verify-model \
-	sam3-export sam3-compile sam3-compile-all sam3-use-asset clean print-release-app print-debug-app
+	sam3-export sam3-compile sam3-compile-gpu sam3-compile-all sam3-use-asset clean print-release-app print-debug-app
