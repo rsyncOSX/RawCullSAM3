@@ -1,7 +1,5 @@
 # Core AI SAM3 Integration Notes
 
-find ~/Library/Developer/Xcode/DerivedData -path '*RawCullSAM3.app/Contents/Resources*SAM3*' | head
-
 RawCullSAM3 now targets the promptable Apple Core AI SAM3 path described in
 WWDC26 session 326, rather than the earlier Vision foreground-mask fallback.
 
@@ -23,11 +21,10 @@ maps those choices to the text prompts passed to Core AI SAM3.
 
 ## Model Resource
 
-For the first implementation, RawCull uses a local bundled model asset. Place
-the Core AI model bundle under `RawCullSAM3/Resources/Models/SAM3` so it is
-copied into the app bundle's `Models` subdirectory. The Swift runtime package
-expects a model-bundle directory containing `metadata.json`, `assets.main`, and
-SAM3 tokenizer assets.
+For the first implementation, RawCull uses a local bundled model asset. Generate
+the Core AI model bundle under `RawCullSAM3/Resources/Models/SAM3`. The Swift
+runtime package expects a model-bundle directory containing `metadata.json`,
+`assets.main`, and SAM3 tokenizer assets.
 
 For migration/dev convenience, RawCull also checks for `SAM3.aimodelc` and
 `SAM3.aimodel`, but the Apple package's high-level `ImageSegmenter` initializer
@@ -35,12 +32,68 @@ loads the model-bundle directory shape. Keep the exported `.aimodel` name in
 sync with the bundle's `metadata.json` `assets.main` value.
 
 RawCull searches both `Contents/Resources/Models` and the app bundle resource
-root. If Xcode flattens the model contents when the real asset is added, add the
-SAM3 model directory as a folder reference/resource so the bundle layout remains
-intact.
+root. Xcode can flatten folder-synchronized resources into
+`Contents/Resources`. The provider handles that app-bundle shape by creating a
+temporary model-bundle view with `tokenizer/tokenizer.json` and a symlink to the
+large `.aimodel` asset before calling `ImageSegmenter(resourcesAt:)`.
 
 The bundled `.aimodel` can be used directly. Core AI will specialize it on
 first load, so ahead-of-time compilation is optional.
+
+## Getting The Model
+
+The exporter downloads `facebook/sam3` from Hugging Face and converts it to Core
+AI. If Hugging Face requires authentication, create a read token at:
+
+```text
+https://huggingface.co/settings/tokens
+```
+
+Then log in before exporting:
+
+```sh
+huggingface-cli login
+```
+
+Alternatively, provide the token only for the export command:
+
+```sh
+HF_TOKEN=hf_your_token_here make sam3-export
+```
+
+Do not commit a Hugging Face token or write it into the repository.
+
+Export the local bundle with:
+
+```sh
+make sam3-export
+```
+
+This runs:
+
+```sh
+uv run tools/export_sam3.py --dtype float16 --overwrite
+```
+
+The exporter writes:
+
+```text
+RawCullSAM3/Resources/Models/SAM3/metadata.json
+RawCullSAM3/Resources/Models/SAM3/sam3_float16.aimodel
+RawCullSAM3/Resources/Models/SAM3/sam3_float16_source.aimodel
+RawCullSAM3/Resources/Models/SAM3/tokenizer/tokenizer.json
+RawCullSAM3/Resources/Models/SAM3/tokenizer/tokenizer_config.json
+```
+
+After export, `metadata.json` should point at the runtime model:
+
+```json
+{
+  "assets": {
+    "main": "sam3_float16.aimodel"
+  }
+}
+```
 
 ## Makefile Commands
 
@@ -85,15 +138,15 @@ copied into the app bundle.
 The current selected model asset is:
 
 ```text
-sam3_float16_source.h16c.aimodelc
+sam3_float16.aimodel
 ```
 
 The verification step accepts the layouts RawCull can load at runtime:
 
 ```text
-RawCullSAM3.app/Contents/Resources/Models/SAM3/sam3_float16_source.h16c.aimodelc
-RawCullSAM3.app/Contents/Resources/SAM3/sam3_float16_source.h16c.aimodelc
-RawCullSAM3.app/Contents/Resources/sam3_float16_source.h16c.aimodelc
+RawCullSAM3.app/Contents/Resources/Models/SAM3/sam3_float16.aimodel
+RawCullSAM3.app/Contents/Resources/SAM3/sam3_float16.aimodel
+RawCullSAM3.app/Contents/Resources/sam3_float16.aimodel
 ```
 
 For the flattened Xcode resource layout, it also checks for:
@@ -150,7 +203,7 @@ They require:
 
 ```text
 RawCullSAM3/Resources/Models/SAM3/metadata.json
-RawCullSAM3/Resources/Models/SAM3/sam3_float16_source.h16c.aimodelc
+RawCullSAM3/Resources/Models/SAM3/sam3_float16.aimodel
 ```
 
 To print the latest discovered app bundle path without rebuilding:
@@ -158,24 +211,6 @@ To print the latest discovered app bundle path without rebuilding:
 ```sh
 make print-release-app
 make print-debug-app
-```
-
-To regenerate the local SAM3 bundle from the exporter:
-
-```sh
-make sam3-export
-```
-
-This runs:
-
-```sh
-uv run tools/export_sam3.py --dtype float16 --overwrite
-```
-
-The exporter should write the model bundle under:
-
-```text
-RawCullSAM3/Resources/Models/SAM3
 ```
 
 To attempt ahead-of-time Core AI compilation for the source-preserving asset:
@@ -216,6 +251,17 @@ This omits the `--architecture` flag and lets `coreai-build` produce all
 supported architecture outputs. The all-architecture output can be much larger
 than a single-machine `h16c` build.
 
+To compile a GPU-preferred asset that matches the CoreAIImageSegmenter package's
+dynamic-model loading preference:
+
+```sh
+make sam3-compile-gpu
+make sam3-use-asset SAM3_ASSET=sam3_float16_source.gpu.aimodelc
+```
+
+The GPU-compiled asset is optional. The known-good development path is the
+runtime `.aimodel` selected by `make sam3-export`.
+
 After a successful compile, select the asset RawCull should load by updating the
 SAM3 bundle metadata:
 
@@ -226,7 +272,7 @@ make sam3-use-asset
 By default, this selects:
 
 ```text
-sam3_float16_source.h16c.aimodelc
+sam3_float16.aimodel
 ```
 
 To select a different compiled or uncompiled asset:
@@ -239,6 +285,7 @@ Examples:
 
 ```sh
 make sam3-use-asset SAM3_ASSET=sam3_float16_source.h16c.aimodelc
+make sam3-use-asset SAM3_ASSET=sam3_float16_source.gpu.aimodelc
 make sam3-use-asset SAM3_ASSET=sam3_float16.aimodel
 ```
 
