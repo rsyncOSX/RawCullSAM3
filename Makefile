@@ -1,4 +1,7 @@
 # sudo ditto "$(make print-release-app)" "/Applications/RawCullSAM3.app"
+# find "/Applications/RawCullSAM3.app/Contents/Resources" -name "sam3_float16_source.h16c.aimodelc" -type d -print
+# find "/Applications/RawCullSAM3.app/Contents/Resources" \( -name "metadata.json" -o -name "tokenizer.json" \) -print
+
 APP ?= RawCullSAM3
 SCHEME ?= RawCullSAM3
 PROJECT ?= RawCullSAM3.xcodeproj
