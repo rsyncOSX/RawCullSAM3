@@ -42,6 +42,11 @@ struct RawCullSAM3App: App {
 
             MenuCommands()
         }
+
+        Settings {
+            SettingsView()
+                .environment(viewModel)
+        }
     }
 
     private func performCleanupTask() {
