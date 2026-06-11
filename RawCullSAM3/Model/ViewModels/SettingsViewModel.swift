@@ -1,0 +1,442 @@
+//
+//  SettingsViewModel.swift
+//  RawCull
+//
+//  Created by Thomas Evensen on 05/02/2026.
+//
+
+import Foundation
+import OSLog
+
+// Observable settings manager for app configuration
+// Persists settings to JSON in Application Support directory
+
+enum CacheSettingsLimits {
+    static let memoryMinMB = 1000
+    static let memoryMaxMB = 8000
+    static let gridMinMB = 400
+    static let gridMaxMB = 2000
+}
+
+@Observable @MainActor
+final class SettingsViewModel {
+    @MainActor static let shared = SettingsViewModel()
+
+    // MARK: - Initialization
+
+    /// Retained so callers can `await ensureLoaded()` before reading settings.
+    @ObservationIgnored private var loadTask: Task<Void, Never>?
+
+    init(settingsFileURL: URL? = nil, loadOnInit: Bool = true) {
+        // Phase 1: all stored properties must be set before self can be captured.
+        self.settingsFileURL = settingsFileURL
+        loadTask = nil
+        // Phase 2: self is now fully initialized — safe to capture in the Task closure.
+        if loadOnInit {
+            loadTask = Task {
+                await self.loadSettings()
+            }
+        }
+    }
+
+    /// Awaits the initial settings load. Safe to call multiple times.
+    func ensureLoaded() async {
+        await loadTask?.value
+    }
+
+    // MARK: - Memory Cache Settings
+
+    /// Maximum memory cache size in MB.
+    var memoryCacheSizeMB: Int = CacheSettingsLimits.memoryMaxMB
+
+    /// Maximum grid (200px) memory cache size in MB.
+    var gridCacheSizeMB: Int = CacheSettingsLimits.gridMaxMB
+
+    // MARK: - Thumbnail Size Settings
+
+    /// Grid thumbnail size in pixels (default: 100)
+    var thumbnailSizeGrid: Int = 200
+    /// Preview thumbnail size in pixels (default: 1024)
+    var thumbnailSizePreview: Int = 1616
+    /// Full size thumbnail in pixels (default: 8700)
+    var thumbnailSizeFullSize: Int = 8700
+
+    /// When enabled, bypasses the cached embedded-JPEG thumbnail and runs the zoom preview
+    /// through a CIRAWFilter pipeline (demosaiced raw → noise reduction → small-radius
+    /// unsharp + sharpenLuminance). See `ThumbnailSharpener.sharpenedPreview`. Default: false.
+    var enableThumbnailSharpening: Bool = false
+    /// Sharpening amount for the CIRAWFilter preview pipeline, 0.0–2.0 (default: 1.0).
+    /// Drives `unsharpMask.intensity = amount * 0.4` and `sharpenLuminance.sharpness = amount * 0.3`.
+    var thumbnailSharpenAmount: Float = 1.0
+
+    // MARK: - Scoring Parameters
+
+    /// Border inset fraction for sharpness scoring (default: 0.04)
+    var scoringBorderInsetFraction: Float = 0.04
+    /// Run subject classification pass during scoring (default: true)
+    var scoringEnableSubjectClassification: Bool = true
+    /// Weight for salient-region score vs full-frame score (default: 0.75)
+    var scoringSalientWeight: Float = 0.75
+    /// Subject size bonus multiplier (default: 0.1)
+    var scoringSubjectSizeFactor: Float = 0.1
+    /// Thumbnail pixel size used when decoding images for sharpness scoring (default: 512)
+    var scoringThumbnailMaxPixelSize: Int = 512
+    /// Optional user intent preset used to tune sharpness scoring (default: Auto)
+    var scoringPhotoType: SharpnessPhotoType = .auto
+    /// Scoring quality/compute trade-off (default: Fast, preserves current speed)
+    var scoringQuality: SharpnessScoringQuality = .fast
+    /// Image source used for sharpness scoring (default: embedded camera preview)
+    var scoringSource: SharpnessScoringSource = .embeddedPreview
+
+    // MARK: - Focus Mask Parameters
+
+    /// Pre-blur radius applied before Laplacian (default: 1.92)
+    var focusMaskPreBlurRadius: Float = 1.92
+    /// Laplacian threshold for focus detection (default: 0.46)
+    var focusMaskThreshold: Float = 0.46
+    /// Energy amplification multiplier (default: 7.62)
+    var focusMaskEnergyMultiplier: Float = 7.62
+    /// Erosion radius for noise removal (default: 1.0)
+    var focusMaskErosionRadius: Float = 1.0
+    /// Dilation radius for connecting regions (default: 1.0)
+    var focusMaskDilationRadius: Float = 1.0
+    /// Feather radius for mask edges (default: 2.0)
+    var focusMaskFeatherRadius: Float = 2.0
+
+    // MARK: - Private Properties
+
+    private let settingsFileName = "settings.json"
+    private let settingsFileURL: URL?
+
+    private var settingsURL: URL {
+        if let settingsFileURL {
+            return settingsFileURL
+        }
+        let appSupport = FileManager.default
+            .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        let appFolder = appSupport.appendingPathComponent("RawCull", isDirectory: true)
+        return appFolder.appendingPathComponent(settingsFileName)
+    }
+
+    // MARK: - Public Methods
+
+    /// Load settings from JSON file
+    func loadSettings() async {
+        do {
+            let fileURL = settingsURL
+
+            // Create directory if it doesn't exist
+            let dirURL = fileURL.deletingLastPathComponent()
+            try FileManager.default.createDirectory(
+                at: dirURL,
+                withIntermediateDirectories: true,
+                attributes: nil,
+            )
+
+            // If file doesn't exist, just use defaults
+            guard FileManager.default.fileExists(atPath: fileURL.path) else {
+                Logger.process.debugMessageOnly("Settings file not found, using defaults")
+                return
+            }
+
+            let data = try await Task.detached(priority: .utility) {
+                try Data(contentsOf: fileURL)
+            }.value
+            let decoder = JSONDecoder()
+            let savedSettings = try decoder.decode(SavedSettings.self, from: data)
+
+            await MainActor.run {
+                self.memoryCacheSizeMB = savedSettings.memoryCacheSizeMB
+                self.gridCacheSizeMB = savedSettings.gridCacheSizeMB
+                self.thumbnailSizeGrid = savedSettings.thumbnailSizeGrid
+                self.thumbnailSizePreview = savedSettings.thumbnailSizePreview
+                self.thumbnailSizeFullSize = savedSettings.thumbnailSizeFullSize
+                self.enableThumbnailSharpening = savedSettings.enableThumbnailSharpening
+                self.thumbnailSharpenAmount = savedSettings.thumbnailSharpenAmount
+                self.scoringBorderInsetFraction = savedSettings.scoringBorderInsetFraction
+                self.scoringEnableSubjectClassification = savedSettings.scoringEnableSubjectClassification
+                self.scoringSalientWeight = savedSettings.scoringSalientWeight
+                self.scoringSubjectSizeFactor = savedSettings.scoringSubjectSizeFactor
+                self.scoringThumbnailMaxPixelSize = SharpnessScoringSizeOption.normalizedPixelSize(
+                    savedSettings.scoringThumbnailMaxPixelSize,
+                    for: savedSettings.scoringQuality,
+                )
+                self.scoringPhotoType = savedSettings.scoringPhotoType
+                self.scoringQuality = savedSettings.scoringQuality
+                self.scoringSource = savedSettings.scoringSource
+                self.focusMaskPreBlurRadius = savedSettings.focusMaskPreBlurRadius
+                self.focusMaskThreshold = savedSettings.focusMaskThreshold
+                self.focusMaskEnergyMultiplier = savedSettings.focusMaskEnergyMultiplier
+                self.focusMaskErosionRadius = savedSettings.focusMaskErosionRadius
+                self.focusMaskDilationRadius = savedSettings.focusMaskDilationRadius
+                self.focusMaskFeatherRadius = savedSettings.focusMaskFeatherRadius
+            }
+
+            Logger.process.debugMessageOnly("SettingsManager: Settings loaded successfully")
+        } catch {
+            Logger.process.errorMessageOnly("Failed to load settings: \(error.localizedDescription)")
+        }
+    }
+
+    /// Save settings to JSON file. Encodes on the MainActor then writes on a background thread.
+    func saveSettings() async {
+        await ensureLoaded()
+
+        do {
+            validateSettings()
+
+            let fileURL = settingsURL
+            let dirURL = fileURL.deletingLastPathComponent()
+
+            let settingsToSave = SavedSettings(
+                memoryCacheSizeMB: memoryCacheSizeMB,
+                gridCacheSizeMB: gridCacheSizeMB,
+                thumbnailSizeGrid: thumbnailSizeGrid,
+                thumbnailSizePreview: thumbnailSizePreview,
+                thumbnailSizeFullSize: thumbnailSizeFullSize,
+                enableThumbnailSharpening: enableThumbnailSharpening,
+                thumbnailSharpenAmount: thumbnailSharpenAmount,
+                scoringBorderInsetFraction: scoringBorderInsetFraction,
+                scoringEnableSubjectClassification: scoringEnableSubjectClassification,
+                scoringSalientWeight: scoringSalientWeight,
+                scoringSubjectSizeFactor: scoringSubjectSizeFactor,
+                scoringThumbnailMaxPixelSize: SharpnessScoringSizeOption.normalizedPixelSize(
+                    scoringThumbnailMaxPixelSize,
+                    for: scoringQuality,
+                ),
+                scoringPhotoType: scoringPhotoType,
+                scoringQuality: scoringQuality,
+                scoringSource: scoringSource,
+                focusMaskPreBlurRadius: focusMaskPreBlurRadius,
+                focusMaskThreshold: focusMaskThreshold,
+                focusMaskEnergyMultiplier: focusMaskEnergyMultiplier,
+                focusMaskErosionRadius: focusMaskErosionRadius,
+                focusMaskDilationRadius: focusMaskDilationRadius,
+                focusMaskFeatherRadius: focusMaskFeatherRadius,
+            )
+
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            let data = try encoder.encode(settingsToSave)
+
+            // Offload blocking directory creation and file write to a background thread
+            // to avoid stalling the MainActor. data and URLs are Sendable value types.
+            try await Task.detached(priority: .background) {
+                try FileManager.default.createDirectory(
+                    at: dirURL,
+                    withIntermediateDirectories: true,
+                    attributes: nil,
+                )
+                try data.write(to: fileURL, options: .atomic)
+            }.value
+
+            Logger.process.debugMessageOnly("Settings saved successfully")
+        } catch {
+            Logger.process.errorMessageOnly("Failed to save settings: \(error.localizedDescription)")
+        }
+    }
+
+    /// Validate settings and warn about potentially aggressive values
+    private func validateSettings() {
+        // Check minimum safety threshold
+        let minimumCacheMB = 500
+        if memoryCacheSizeMB < minimumCacheMB {
+            let message = "Cache size: \(self.memoryCacheSizeMB)MB is below " +
+                "recommended minimum of \(minimumCacheMB)MB. Performance may suffer."
+            Logger.process.errorMessageOnly("\(message)")
+        }
+
+        // Check if cache size exceeds 80% of available system memory (increased from 50%)
+        // This allows 10GB caches on 16GB+ systems
+        let availableMemory = ProcessInfo.processInfo.physicalMemory
+        let availableMemoryMB = Int(availableMemory / (1024 * 1024))
+        let memoryThresholdPercent = 80
+
+        if memoryCacheSizeMB > availableMemoryMB * memoryThresholdPercent / 100 {
+            let message = "Cache size: \(self.memoryCacheSizeMB)MB exceeds " +
+                "\(memoryThresholdPercent)% of available system memory " +
+                "(\(availableMemoryMB)MB). This may cause system memory pressure."
+            Logger.process.errorMessageOnly("\(message)")
+        }
+    }
+
+    func resetToDefaultsThumbnails() async {
+        await MainActor.run {
+            self.thumbnailSizeGrid = 200
+            self.thumbnailSizePreview = 1616
+            self.thumbnailSizeFullSize = 8700
+        }
+        await saveSettings()
+    }
+
+    /**
+     // MARK: - Memory Projection
+
+     /// Empirically-calibrated projection of RawCull's RAM payload from the two
+     /// cache-size sliders. App baseline (no caches populated) is ~100 MB.
+     /// Interpolates between baseline and a per-slider payload ceiling using
+     /// each slider's fraction of its own range, weighted by the slider's
+     /// range share of the combined payload. Calibration anchor: with
+     /// `thumbnailCostPerPixel=4`, mem=8000 MB / grid=2000 MB, real process
+     /// RSS measured ~9330 MB peak; `maxPayloadMB = 9300` makes the formula
+     /// reproduce that ceiling. Used by both the Cache settings tab and the
+     /// Memory Diagnostics console (the console logs this side-by-side with
+     /// the real process RSS so the calibration can be tuned against real usage).
+     func projectedRawCullMemoryBytes() -> UInt64 {
+         let memMin = 1000.0, memMax = 8000.0
+         let gridMin = 400.0, gridMax = 2000.0
+         let memFrac = (Double(memoryCacheSizeMB) - memMin) / (memMax - memMin)
+         let gridFrac = (Double(gridCacheSizeMB) - gridMin) / (gridMax - gridMin)
+         let memRange = memMax - memMin
+         let gridRange = gridMax - gridMin
+         let totalRange = memRange + gridRange
+         let combined = memFrac * (memRange / totalRange) + gridFrac * (gridRange / totalRange)
+         let baselineMB = 100.0
+         let maxPayloadMB = 9300.0
+         let clamped = min(1.0, max(0.0, combined))
+         let projectedMB = baselineMB + clamped * maxPayloadMB
+         return UInt64(projectedMB * 1024.0 * 1024.0)
+     }
+     */
+    /// Get a snapshot of current settings (safe to call from any context)
+    nonisolated func asyncgetsettings() async -> SavedSettings {
+        await MainActor.run {
+            SavedSettings(
+                memoryCacheSizeMB: self.memoryCacheSizeMB,
+                gridCacheSizeMB: self.gridCacheSizeMB,
+                thumbnailSizeGrid: self.thumbnailSizeGrid,
+                thumbnailSizePreview: self.thumbnailSizePreview,
+                thumbnailSizeFullSize: self.thumbnailSizeFullSize,
+                enableThumbnailSharpening: self.enableThumbnailSharpening,
+                thumbnailSharpenAmount: self.thumbnailSharpenAmount,
+                scoringBorderInsetFraction: self.scoringBorderInsetFraction,
+                scoringEnableSubjectClassification: self.scoringEnableSubjectClassification,
+                scoringSalientWeight: self.scoringSalientWeight,
+                scoringSubjectSizeFactor: self.scoringSubjectSizeFactor,
+                scoringThumbnailMaxPixelSize: SharpnessScoringSizeOption.normalizedPixelSize(
+                    self.scoringThumbnailMaxPixelSize,
+                    for: self.scoringQuality,
+                ),
+                scoringPhotoType: self.scoringPhotoType,
+                scoringQuality: self.scoringQuality,
+                scoringSource: self.scoringSource,
+                focusMaskPreBlurRadius: self.focusMaskPreBlurRadius,
+                focusMaskThreshold: self.focusMaskThreshold,
+                focusMaskEnergyMultiplier: self.focusMaskEnergyMultiplier,
+                focusMaskErosionRadius: self.focusMaskErosionRadius,
+                focusMaskDilationRadius: self.focusMaskDilationRadius,
+                focusMaskFeatherRadius: self.focusMaskFeatherRadius,
+            )
+        }
+    }
+}
+
+// MARK: - Codable Model
+
+struct SavedSettings: Codable {
+    let memoryCacheSizeMB: Int
+    let gridCacheSizeMB: Int
+
+    let thumbnailSizeGrid: Int
+    let thumbnailSizePreview: Int
+    let thumbnailSizeFullSize: Int
+    let enableThumbnailSharpening: Bool
+    let thumbnailSharpenAmount: Float
+
+    let scoringBorderInsetFraction: Float
+    let scoringEnableSubjectClassification: Bool
+    let scoringSalientWeight: Float
+    let scoringSubjectSizeFactor: Float
+    let scoringThumbnailMaxPixelSize: Int
+    let scoringPhotoType: SharpnessPhotoType
+    let scoringQuality: SharpnessScoringQuality
+    let scoringSource: SharpnessScoringSource
+
+    let focusMaskPreBlurRadius: Float
+    let focusMaskThreshold: Float
+    let focusMaskEnergyMultiplier: Float
+    let focusMaskErosionRadius: Float
+    let focusMaskDilationRadius: Float
+    let focusMaskFeatherRadius: Float
+
+    init(
+        memoryCacheSizeMB _: Int,
+        gridCacheSizeMB _: Int = CacheSettingsLimits.gridMaxMB,
+        thumbnailSizeGrid: Int,
+        thumbnailSizePreview: Int,
+        thumbnailSizeFullSize: Int,
+        enableThumbnailSharpening: Bool = false,
+        thumbnailSharpenAmount: Float = 1.0,
+        scoringBorderInsetFraction: Float = 0.04,
+        scoringEnableSubjectClassification: Bool = true,
+        scoringSalientWeight: Float = 0.75,
+        scoringSubjectSizeFactor: Float = 0.1,
+        scoringThumbnailMaxPixelSize: Int = 512,
+        scoringPhotoType: SharpnessPhotoType = .auto,
+        scoringQuality: SharpnessScoringQuality = .fast,
+        scoringSource: SharpnessScoringSource = .embeddedPreview,
+        focusMaskPreBlurRadius: Float = 1.92,
+        focusMaskThreshold: Float = 0.46,
+        focusMaskEnergyMultiplier: Float = 7.62,
+        focusMaskErosionRadius: Float = 1.0,
+        focusMaskDilationRadius: Float = 1.0,
+        focusMaskFeatherRadius: Float = 2.0,
+    ) {
+        self.memoryCacheSizeMB = CacheSettingsLimits.memoryMaxMB
+        self.gridCacheSizeMB = CacheSettingsLimits.gridMaxMB
+        self.thumbnailSizeGrid = Self.clamp(thumbnailSizeGrid, 100 ... 300)
+        self.thumbnailSizePreview = Self.clamp(thumbnailSizePreview, 1024 ... 1664)
+        self.thumbnailSizeFullSize = thumbnailSizeFullSize > 0 ? min(thumbnailSizeFullSize, 20000) : 8700
+        self.enableThumbnailSharpening = enableThumbnailSharpening
+        self.thumbnailSharpenAmount = Self.clamp(thumbnailSharpenAmount, 0.0 ... 2.0)
+        self.scoringBorderInsetFraction = Self.clamp(scoringBorderInsetFraction, 0.0 ... 0.10)
+        self.scoringEnableSubjectClassification = scoringEnableSubjectClassification
+        self.scoringSalientWeight = Self.clamp(scoringSalientWeight, 0.0 ... 1.0)
+        self.scoringSubjectSizeFactor = Self.clamp(scoringSubjectSizeFactor, 0.0 ... 3.0)
+        self.scoringPhotoType = scoringPhotoType
+        self.scoringQuality = scoringQuality
+        self.scoringSource = scoringSource
+        self.scoringThumbnailMaxPixelSize = SharpnessScoringSizeOption.normalizedPixelSize(
+            scoringThumbnailMaxPixelSize,
+            for: scoringQuality,
+        )
+        self.focusMaskPreBlurRadius = Self.clamp(focusMaskPreBlurRadius, 0.3 ... 4.0)
+        self.focusMaskThreshold = Self.clamp(focusMaskThreshold, 0.01 ... 0.70)
+        self.focusMaskEnergyMultiplier = Self.clamp(focusMaskEnergyMultiplier, 1.0 ... 20.0)
+        self.focusMaskErosionRadius = Self.clamp(focusMaskErosionRadius, 0.0 ... 2.0)
+        self.focusMaskDilationRadius = Self.clamp(focusMaskDilationRadius, 0.0 ... 3.0)
+        self.focusMaskFeatherRadius = max(focusMaskFeatherRadius, 0.0)
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let scoringQuality = (try? c.decode(SharpnessScoringQuality.self, forKey: .scoringQuality)) ?? .fast
+        try self.init(
+            memoryCacheSizeMB: c.decode(Int.self, forKey: .memoryCacheSizeMB),
+            gridCacheSizeMB: (try? c.decode(Int.self, forKey: .gridCacheSizeMB)) ?? CacheSettingsLimits.gridMaxMB,
+            thumbnailSizeGrid: c.decode(Int.self, forKey: .thumbnailSizeGrid),
+            thumbnailSizePreview: c.decode(Int.self, forKey: .thumbnailSizePreview),
+            thumbnailSizeFullSize: c.decode(Int.self, forKey: .thumbnailSizeFullSize),
+            enableThumbnailSharpening: (try? c.decode(Bool.self, forKey: .enableThumbnailSharpening)) ?? false,
+            thumbnailSharpenAmount: (try? c.decode(Float.self, forKey: .thumbnailSharpenAmount)) ?? 1.0,
+            scoringBorderInsetFraction: (try? c.decode(Float.self, forKey: .scoringBorderInsetFraction)) ?? 0.04,
+            scoringEnableSubjectClassification: (try? c.decode(Bool.self, forKey: .scoringEnableSubjectClassification)) ?? true,
+            scoringSalientWeight: (try? c.decode(Float.self, forKey: .scoringSalientWeight)) ?? 0.75,
+            scoringSubjectSizeFactor: (try? c.decode(Float.self, forKey: .scoringSubjectSizeFactor)) ?? 0.1,
+            scoringThumbnailMaxPixelSize: (try? c.decode(Int.self, forKey: .scoringThumbnailMaxPixelSize)) ?? 512,
+            scoringPhotoType: (try? c.decode(SharpnessPhotoType.self, forKey: .scoringPhotoType)) ?? .auto,
+            scoringQuality: scoringQuality,
+            scoringSource: (try? c.decode(SharpnessScoringSource.self, forKey: .scoringSource)) ?? .embeddedPreview,
+            focusMaskPreBlurRadius: (try? c.decode(Float.self, forKey: .focusMaskPreBlurRadius)) ?? 1.92,
+            focusMaskThreshold: (try? c.decode(Float.self, forKey: .focusMaskThreshold)) ?? 0.46,
+            focusMaskEnergyMultiplier: (try? c.decode(Float.self, forKey: .focusMaskEnergyMultiplier)) ?? 7.62,
+            focusMaskErosionRadius: (try? c.decode(Float.self, forKey: .focusMaskErosionRadius)) ?? 1.0,
+            focusMaskDilationRadius: (try? c.decode(Float.self, forKey: .focusMaskDilationRadius)) ?? 1.0,
+            focusMaskFeatherRadius: (try? c.decode(Float.self, forKey: .focusMaskFeatherRadius)) ?? 2.0,
+        )
+    }
+
+    private static func clamp<T: Comparable>(_ value: T, _ range: ClosedRange<T>) -> T {
+        min(max(value, range.lowerBound), range.upperBound)
+    }
+}

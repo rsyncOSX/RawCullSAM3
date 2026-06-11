@@ -1,0 +1,110 @@
+import SwiftUI
+
+struct FileDetailView: View {
+    @Environment(\.openWindow) var openWindow
+    @Bindable var viewModel: RawCullViewModel
+
+    @Binding var cgImage: CGImage?
+    @Binding var nsImage: NSImage?
+    @Binding var selectedFileID: UUID?
+
+    let file: FileItem?
+
+    var body: some View {
+        content
+            .background(rawDiagnosticsShortcut)
+    }
+
+    var files: [FileItem] {
+        viewModel.files
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        if let file {
+            VStack(spacing: 20) {
+                MainThumbnailImageView(
+                    url: file.url,
+                    file: file,
+                )
+            }
+            .padding()
+            .onTapGesture(count: 2) {
+                guard let selectedID = selectedFileID,
+                      files.contains(where: { $0.id == selectedID }) else { return }
+                viewModel.openZoomOverlay()
+            }
+        } else {
+            emptyState
+        }
+    }
+
+    private var rawDiagnosticsShortcut: some View {
+        Button("RAW Diagnostics") {
+            guard let file else { return }
+            viewModel.presentRawDiagnostics(for: file)
+        }
+        .keyboardShortcut("i", modifiers: [.command])
+        .disabled(file == nil)
+        .opacity(0)
+        .frame(width: 0, height: 0)
+        .accessibilityHidden(true)
+    }
+
+    private var emptyState: some View {
+        ZStack {
+            Color(red: 0.118, green: 0.106, blue: 0.094)
+                .ignoresSafeArea()
+            RadialGradient(
+                colors: [Color(red: 0.71, green: 0.55, blue: 0.39).opacity(0.10), .clear],
+                center: UnitPoint(x: 0.3, y: 0.4),
+                startRadius: 0,
+                endRadius: 400,
+            )
+            .ignoresSafeArea()
+            RadialGradient(
+                colors: [Color(red: 0.31, green: 0.39, blue: 0.55).opacity(0.08), .clear],
+                center: UnitPoint(x: 0.75, y: 0.7),
+                startRadius: 0,
+                endRadius: 380,
+            )
+            .ignoresSafeArea()
+            grainOverlay
+                .ignoresSafeArea()
+
+            VStack(spacing: 0) {
+                Image(nsImage: NSApp.applicationIconImage)
+                    .resizable()
+                    .frame(width: 72, height: 72)
+                    .clipShape(RoundedRectangle(cornerRadius: 16))
+                    .padding(.bottom, 22)
+
+                Text("Ready when you are.")
+                    .font(.system(size: 17, weight: .medium))
+                    .foregroundStyle(.primary.opacity(0.85))
+                    .padding(.bottom, 7)
+
+                Text("Select a photo to begin culling.")
+                    .font(.system(size: 13, weight: .regular))
+                    .foregroundStyle(.secondary.opacity(0.7))
+            }
+        }
+    }
+
+    var grainOverlay: some View {
+        Canvas { context, size in
+            var rng = SystemRandomNumberGenerator()
+            for _ in 0 ..< Int(size.width * size.height * 0.015) {
+                let x = CGFloat.random(in: 0 ..< size.width, using: &rng)
+                let y = CGFloat.random(in: 0 ..< size.height, using: &rng)
+                let opacity = Double.random(in: 0.01 ... 0.045, using: &rng)
+                context.fill(
+                    Path(CGRect(x: x, y: y, width: 1, height: 1)),
+                    with: .color(.white.opacity(opacity)),
+                )
+            }
+        }
+        .allowsHitTesting(false)
+        .blendMode(.screen)
+    }
+}
