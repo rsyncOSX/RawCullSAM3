@@ -661,12 +661,14 @@ struct ZoomOverlayView: View {
         ZStack {
             Image(decorative: image, scale: 1.0, orientation: .up)
                 .resizable()
+                .interpolation(.high)
                 .scaledToFit()
                 .frame(width: size.width, height: size.height)
 
             if showFocusMask, let mask = focusMask {
                 Image(decorative: mask, scale: 1.0, orientation: .up)
                     .resizable()
+                    .interpolation(.high)
                     .scaledToFit()
                     .frame(width: size.width, height: size.height)
                     .blendMode(.screen)
@@ -677,6 +679,7 @@ struct ZoomOverlayView: View {
             if showSubjectMask, let mask = subjectMask {
                 Image(decorative: mask, scale: 1.0, orientation: .up)
                     .resizable()
+                    .interpolation(.high)
                     .scaledToFit()
                     .frame(width: size.width, height: size.height)
                     .blendMode(.plusLighter)

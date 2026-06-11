@@ -6,12 +6,15 @@ import Foundation
 // inference APIs, but does not currently declare Sendable. RawCull keeps one
 // instance actor-owned and only calls through this provider boundary.
 extension ImageSegmenter: @retroactive @unchecked Sendable {}
+extension CoreAISegmentationEngine: @retroactive @unchecked Sendable {}
 
 actor CoreAISAM3Provider: SubjectSegmentationProvider {
     nonisolated let modelVersion = "coreai-sam3-local"
 
     private let resourcesURL: URL?
-    private var segmenter: ImageSegmenter?
+    private var model: LoadedSAM3Model?
+
+    private nonisolated static let maskThreshold: Float = 0.50
 
     init(resourcesURL: URL? = CoreAISAM3Provider.defaultResourcesURL()) {
         self.resourcesURL = resourcesURL
@@ -20,13 +23,18 @@ actor CoreAISAM3Provider: SubjectSegmentationProvider {
     func segment(_ request: SubjectSegmentationRequest) async throws -> SubjectSegmentationResult {
         let totalStart = CFAbsoluteTimeGetCurrent()
         guard !Task.isCancelled else { throw SubjectSegmentationError.cancelled }
-        let segmenter = try await loadSegmenter()
+        let model = try await loadModel()
 
-        let response: SegmentationResponse
+        let output: SegmentationOutput
         do {
-            response = try await segmenter.segment(
+            let tokens = model.tokenizer.encode(
+                request.prompt.query,
+                contextLength: model.parameters.tokenizerContextLength,
+            )
+            output = try await model.engine.segment(
                 image: request.image,
-                prompt: request.prompt.query,
+                textQuery: .tokens([tokens]),
+                parameters: model.parameters,
             )
         } catch let error as SubjectSegmentationError {
             throw error
@@ -36,22 +44,23 @@ actor CoreAISAM3Provider: SubjectSegmentationProvider {
             )
         }
         guard !Task.isCancelled else { throw SubjectSegmentationError.cancelled }
-        guard let segment = response.segments.first else {
-            throw SubjectSegmentationError.noMask
-        }
 
-        let mask = try Self.makeMaskImage(from: segment)
+        let decoded = try Self.makeMaskImage(
+            from: output,
+            outputSize: request.inputSize,
+            threshold: model.parameters.maskThreshold,
+        )
         let timing = SubjectSegmentationTiming(
             preprocessMilliseconds: nil,
             inferenceMilliseconds: nil,
             postprocessMilliseconds: nil,
             totalMilliseconds: (CFAbsoluteTimeGetCurrent() - totalStart) * 1000,
         )
-        let outputSize = CGSize(width: mask.width, height: mask.height)
+        let outputSize = CGSize(width: decoded.mask.width, height: decoded.mask.height)
         let diagnostics = SubjectSegmentationDiagnostics(
             modelVersion: modelVersion,
             prompt: request.prompt,
-            confidence: segment.score,
+            confidence: decoded.score,
             timing: timing,
             inputSize: request.inputSize,
             outputSize: outputSize,
@@ -62,8 +71,8 @@ actor CoreAISAM3Provider: SubjectSegmentationProvider {
             fileID: request.fileID,
             requestID: request.requestID,
             prompt: request.prompt,
-            mask: mask,
-            confidence: segment.score,
+            mask: decoded.mask,
+            confidence: decoded.score,
             modelVersion: modelVersion,
             inputSize: request.inputSize,
             outputSize: outputSize,
@@ -72,9 +81,9 @@ actor CoreAISAM3Provider: SubjectSegmentationProvider {
         )
     }
 
-    private func loadSegmenter() async throws -> ImageSegmenter {
-        if let segmenter {
-            return segmenter
+    private func loadModel() async throws -> LoadedSAM3Model {
+        if let model {
+            return model
         }
         guard let resourcesURL else {
             throw SubjectSegmentationError.helperError(
@@ -91,9 +100,26 @@ actor CoreAISAM3Provider: SubjectSegmentationProvider {
             )
         }
 
-        let loadedSegmenter: ImageSegmenter
+        let loadedModel: LoadedSAM3Model
         do {
-            loadedSegmenter = try await ImageSegmenter(resourcesAt: segmenterResourcesURL.path)
+            let assetName = Self.assetName(in: segmenterResourcesURL) ?? "sam3_float16.aimodel"
+            let modelURL = segmenterResourcesURL.appendingPathComponent(assetName)
+            let tokenizer = try CLIPTokenizer(
+                folder: segmenterResourcesURL.appendingPathComponent("tokenizer", isDirectory: true),
+            )
+            let parameters = SegmentationParameters(
+                maskThreshold: Self.maskThreshold,
+                maxSegments: 5,
+            )
+            let engine = try await CoreAISegmentationEngine(
+                parameters: parameters,
+                modelURL: modelURL,
+            )
+            loadedModel = LoadedSAM3Model(
+                engine: engine,
+                tokenizer: tokenizer,
+                parameters: parameters,
+            )
         } catch let error as SubjectSegmentationError {
             throw error
         } catch {
@@ -101,8 +127,8 @@ actor CoreAISAM3Provider: SubjectSegmentationProvider {
                 "Core AI SAM3 load failed: \(Self.loadFailureMessage(for: error, resourcesURL: resourcesURL))",
             )
         }
-        segmenter = loadedSegmenter
-        return loadedSegmenter
+        model = loadedModel
+        return loadedModel
     }
 
     private nonisolated static func message(for error: Error) -> String {
@@ -255,27 +281,68 @@ actor CoreAISAM3Provider: SubjectSegmentationProvider {
         let assets: [String: String]
     }
 
-    private nonisolated static func makeMaskImage(from segment: Segment) throws -> CGImage {
-        let width = segment.maskWidth
-        let height = segment.maskHeight
-        guard width > 0,
+    private struct LoadedSAM3Model {
+        let engine: CoreAISegmentationEngine
+        let tokenizer: CLIPTokenizer
+        let parameters: SegmentationParameters
+    }
+
+    private nonisolated struct DecodedMask {
+        let mask: CGImage
+        let score: Float
+    }
+
+    private nonisolated static func makeMaskImage(
+        from output: SegmentationOutput,
+        outputSize: CGSize,
+        threshold: Float,
+    ) throws -> DecodedMask {
+        let shape = output.masksShape
+        guard shape.count >= 4 else {
+            throw SubjectSegmentationError.noMask
+        }
+        let batchIndex = 0
+        let queryCount = shape[1]
+        let sourceHeight = shape[2]
+        let sourceWidth = shape[3]
+        let pixelsPerQuery = sourceWidth * sourceHeight
+        let width = Int(outputSize.width.rounded())
+        let height = Int(outputSize.height.rounded())
+
+        guard queryCount > 0,
+              sourceWidth > 0,
+              sourceHeight > 0,
+              width > 0,
               height > 0,
-              segment.mask.count == width * height
+              output.predictedMasks.count >= (batchIndex + 1) * queryCount * pixelsPerQuery
         else {
             throw SubjectSegmentationError.decodeFailure
         }
 
-        var pixels = [UInt8](repeating: 0, count: width * height * 4)
-        pixels.withUnsafeMutableBufferPointer { buffer in
-            guard let baseAddress = buffer.baseAddress else { return }
-            for index in segment.mask.indices where segment.mask[index] {
-                let offset = index * 4
-                baseAddress[offset + 0] = 255
-                baseAddress[offset + 1] = 255
-                baseAddress[offset + 2] = 255
-                baseAddress[offset + 3] = 255
-            }
+        let bestQuery = bestQueryIndex(
+            output: output,
+            batchIndex: batchIndex,
+            queryCount: queryCount,
+        )
+        guard let bestQuery else {
+            throw SubjectSegmentationError.noMask
         }
+
+        let maskBase = (batchIndex * queryCount + bestQuery.index) * pixelsPerQuery
+        let lowResolutionMask = output.predictedMasks[maskBase..<(maskBase + pixelsPerQuery)].map {
+            sigmoid($0)
+        }
+
+        var pixels = [UInt8](repeating: 0, count: width * height * 4)
+        fillBilinearMaskPixels(
+            source: lowResolutionMask,
+            sourceWidth: sourceWidth,
+            sourceHeight: sourceHeight,
+            threshold: threshold,
+            pixels: &pixels,
+            width: width,
+            height: height,
+        )
 
         guard let provider = CGDataProvider(data: Data(pixels) as CFData),
               let image = CGImage(
@@ -288,13 +355,110 @@ actor CoreAISAM3Provider: SubjectSegmentationProvider {
                 bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue),
                 provider: provider,
                 decode: nil,
-                shouldInterpolate: false,
+                shouldInterpolate: true,
                 intent: .defaultIntent,
               )
         else {
             throw SubjectSegmentationError.decodeFailure
         }
 
-        return image
+        return DecodedMask(mask: image, score: bestQuery.score)
+    }
+
+    private nonisolated static func bestQueryIndex(
+        output: SegmentationOutput,
+        batchIndex: Int,
+        queryCount: Int,
+    ) -> (index: Int, score: Float)? {
+        let useDirectScores = !output.predictedScores.isEmpty
+        guard useDirectScores || output.predictedLogits.count >= (batchIndex + 1) * queryCount else {
+            return nil
+        }
+        if useDirectScores,
+           output.predictedScores.count < (batchIndex + 1) * queryCount {
+            return nil
+        }
+
+        let presenceScore: Float
+        if output.presenceLogits.count > batchIndex {
+            presenceScore = sigmoid(output.presenceLogits[batchIndex])
+        } else {
+            presenceScore = 1
+        }
+
+        var best: (index: Int, score: Float)?
+        for queryIndex in 0..<queryCount {
+            let scoreIndex = batchIndex * queryCount + queryIndex
+            let score = if useDirectScores {
+                output.predictedScores[scoreIndex]
+            } else {
+                sigmoid(output.predictedLogits[scoreIndex]) * presenceScore
+            }
+            if best == nil || score > best!.score {
+                best = (queryIndex, score)
+            }
+        }
+        return best
+    }
+
+    private nonisolated static func fillBilinearMaskPixels(
+        source: [Float],
+        sourceWidth: Int,
+        sourceHeight: Int,
+        threshold: Float,
+        pixels: inout [UInt8],
+        width: Int,
+        height: Int,
+    ) {
+        let scaleX = Float(sourceWidth) / Float(width)
+        let scaleY = Float(sourceHeight) / Float(height)
+        let feather: Float = 0.055
+        let edge0 = threshold - feather
+        let edge1 = threshold + feather
+
+        pixels.withUnsafeMutableBufferPointer { buffer in
+            guard let baseAddress = buffer.baseAddress else { return }
+            for y in 0..<height {
+                let sourceY = max(0, min(Float(sourceHeight - 1), (Float(y) + 0.5) * scaleY - 0.5))
+                let y0 = Int(sourceY.rounded(.down))
+                let y1 = min(y0 + 1, sourceHeight - 1)
+                let yWeight = sourceY - Float(y0)
+                let row0 = y0 * sourceWidth
+                let row1 = y1 * sourceWidth
+
+                for x in 0..<width {
+                    let sourceX = max(0, min(Float(sourceWidth - 1), (Float(x) + 0.5) * scaleX - 0.5))
+                    let x0 = Int(sourceX.rounded(.down))
+                    let x1 = min(x0 + 1, sourceWidth - 1)
+                    let xWeight = sourceX - Float(x0)
+
+                    let top = source[row0 + x0] * (1 - xWeight) + source[row0 + x1] * xWeight
+                    let bottom = source[row1 + x0] * (1 - xWeight) + source[row1 + x1] * xWeight
+                    let probability = top * (1 - yWeight) + bottom * yWeight
+                    let alpha = smoothMaskAlpha(probability, edge0: edge0, edge1: edge1)
+                    guard alpha > 0 else { continue }
+
+                    let offset = (y * width + x) * 4
+                    baseAddress[offset + 0] = 255
+                    baseAddress[offset + 1] = 255
+                    baseAddress[offset + 2] = 255
+                    baseAddress[offset + 3] = alpha
+                }
+            }
+        }
+    }
+
+    private nonisolated static func smoothMaskAlpha(
+        _ value: Float,
+        edge0: Float,
+        edge1: Float,
+    ) -> UInt8 {
+        let clamped = max(0, min(1, (value - edge0) / (edge1 - edge0)))
+        let smoothed = clamped * clamped * (3 - 2 * clamped)
+        return UInt8(max(0, min(255, Int((smoothed * 255).rounded()))))
+    }
+
+    private nonisolated static func sigmoid(_ value: Float) -> Float {
+        1 / (1 + exp(-value))
     }
 }

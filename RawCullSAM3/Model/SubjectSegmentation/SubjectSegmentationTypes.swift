@@ -5,6 +5,7 @@ nonisolated enum SubjectSegmentationPrompt: String, CaseIterable, Codable, Senda
     case subject
     case person
     case bird
+    case deer
     case animal
     case car
 
@@ -15,6 +16,7 @@ nonisolated enum SubjectSegmentationPrompt: String, CaseIterable, Codable, Senda
         case .subject: "Subject"
         case .person: "Person"
         case .bird: "Bird"
+        case .deer: "Deer"
         case .animal: "Animal"
         case .car: "Car"
         }
@@ -25,6 +27,7 @@ nonisolated enum SubjectSegmentationPrompt: String, CaseIterable, Codable, Senda
         case .subject: "subject"
         case .person: "person"
         case .bird: "bird"
+        case .deer: "deer"
         case .animal: "animal"
         case .car: "car"
         }

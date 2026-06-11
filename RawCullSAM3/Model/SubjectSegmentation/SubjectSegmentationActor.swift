@@ -9,7 +9,7 @@ actor SubjectSegmentationActor {
     private let maxSide: Int
     private var activeRequestID: UUID?
 
-    init(maxSide: Int = 1024) {
+    init(maxSide: Int = 4320) {
         provider = CoreAISAM3Provider()
         cache = SubjectMaskCache()
         self.maxSide = maxSide
@@ -18,7 +18,7 @@ actor SubjectSegmentationActor {
     init(
         provider: any SubjectSegmentationProvider,
         cache: SubjectMaskCache,
-        maxSide: Int = 1024,
+        maxSide: Int = 4320,
     ) {
         self.provider = provider
         self.cache = cache
@@ -121,13 +121,14 @@ actor SubjectSegmentationActor {
         let scale = CGFloat(maxSide) / CGFloat(longestSide)
         let width = max(1, Int(CGFloat(image.width) * scale))
         let height = max(1, Int(CGFloat(image.height) * scale))
-        return resizedImage(image, width: width, height: height)
+        return resizedImage(image, width: width, height: height, interpolationQuality: .high)
     }
 
     private nonisolated static func resizedImage(
         _ image: CGImage,
         width: Int,
         height: Int,
+        interpolationQuality: CGInterpolationQuality = .high,
     ) -> CGImage? {
         guard width > 0, height > 0 else { return nil }
         guard image.width != width || image.height != height else { return image }
@@ -140,7 +141,7 @@ actor SubjectSegmentationActor {
             space: CGColorSpaceCreateDeviceRGB(),
             bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue,
         ) else { return nil }
-        context.interpolationQuality = .medium
+        context.interpolationQuality = interpolationQuality
         context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
         return context.makeImage()
     }
