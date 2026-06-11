@@ -1,3 +1,4 @@
+# sudo ditto "$(make print-release-app)" "/Applications/RawCullSAM3.app"
 APP ?= RawCullSAM3
 SCHEME ?= RawCullSAM3
 PROJECT ?= RawCullSAM3.xcodeproj
