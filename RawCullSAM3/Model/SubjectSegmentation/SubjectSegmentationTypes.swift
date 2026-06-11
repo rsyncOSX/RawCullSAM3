@@ -38,6 +38,17 @@ nonisolated struct SubjectSegmentationTiming: Equatable, Sendable {
     let totalMilliseconds: Double?
 }
 
+nonisolated struct SubjectSegmentationDiagnostics: Equatable, Sendable {
+    let modelVersion: String
+    let prompt: SubjectSegmentationPrompt
+    let confidence: Float
+    let timing: SubjectSegmentationTiming
+    let inputSize: CGSize
+    let outputSize: CGSize
+    let resourceName: String?
+    let assetName: String?
+}
+
 nonisolated struct SubjectSegmentationResult: Sendable {
     let fileID: UUID
     let requestID: UUID
@@ -48,6 +59,7 @@ nonisolated struct SubjectSegmentationResult: Sendable {
     let inputSize: CGSize
     let outputSize: CGSize
     let timing: SubjectSegmentationTiming
+    let diagnostics: SubjectSegmentationDiagnostics
 }
 
 nonisolated enum SubjectSegmentationError: Error, Equatable, Sendable {

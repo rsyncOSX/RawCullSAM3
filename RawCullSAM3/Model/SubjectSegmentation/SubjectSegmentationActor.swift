@@ -84,6 +84,16 @@ actor SubjectSegmentationActor {
             inputSize: result.inputSize,
             outputSize: CGSize(width: displayMask.width, height: displayMask.height),
             timing: result.timing,
+            diagnostics: SubjectSegmentationDiagnostics(
+                modelVersion: result.diagnostics.modelVersion,
+                prompt: result.diagnostics.prompt,
+                confidence: result.diagnostics.confidence,
+                timing: result.diagnostics.timing,
+                inputSize: result.diagnostics.inputSize,
+                outputSize: CGSize(width: displayMask.width, height: displayMask.height),
+                resourceName: result.diagnostics.resourceName,
+                assetName: result.diagnostics.assetName,
+            ),
         )
         await cache.store(displayResult, for: key)
         return displayResult

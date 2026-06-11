@@ -3,7 +3,7 @@ import SwiftUI
 nonisolated enum SubjectSegmentationControlState: Equatable {
     case idle
     case loading
-    case ready(confidence: Float, totalMilliseconds: Double?)
+    case ready(SubjectSegmentationDiagnostics)
     case failed(String)
 
     var isLoading: Bool {
@@ -19,6 +19,7 @@ struct SubjectSegmentationControlsView: View {
     var density: ImageOverlayControlDensity = .regular
     var onToggle: () -> Void
     var onPromptChange: () -> Void
+    @State private var showDiagnostics = false
 
     var body: some View {
         HStack(spacing: density == .compact ? 5 : 8) {
@@ -70,11 +71,29 @@ struct SubjectSegmentationControlsView: View {
                 .controlSize(.small)
                 .fixedSize()
 
-        case let .ready(confidence, totalMilliseconds):
-            Text(statusText(confidence: confidence, totalMilliseconds: totalMilliseconds))
-                .font(.caption2.monospacedDigit())
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
+        case let .ready(diagnostics):
+            HStack(spacing: 5) {
+                Text(statusText(diagnostics))
+                    .font(.caption2.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+
+                Button {
+                    showDiagnostics.toggle()
+                } label: {
+                    Text("SAM3")
+                        .font(.caption2.weight(.semibold))
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 2)
+                        .background(.green.opacity(0.16), in: Capsule())
+                        .foregroundStyle(.green)
+                }
+                .buttonStyle(.plain)
+                .help(diagnosticsHelpText(diagnostics))
+                .popover(isPresented: $showDiagnostics, arrowEdge: .top) {
+                    SubjectSegmentationDiagnosticsPopover(diagnostics: diagnostics)
+                }
+            }
 
         case let .failed(message):
             Text(message)
@@ -108,12 +127,74 @@ struct SubjectSegmentationControlsView: View {
         density == .compact ? 20 : 28
     }
 
-    private func statusText(confidence: Float, totalMilliseconds: Double?) -> String {
-        let confidenceText = "\(Int((confidence * 100).rounded()))%"
-        guard let totalMilliseconds else { return confidenceText }
+    private func statusText(_ diagnostics: SubjectSegmentationDiagnostics) -> String {
+        let confidenceText = "\(Int((diagnostics.confidence * 100).rounded()))%"
+        guard let totalMilliseconds = diagnostics.timing.totalMilliseconds else { return confidenceText }
         if totalMilliseconds >= 1000 {
             return "\(confidenceText) \(String(format: "%.1f", totalMilliseconds / 1000))s"
         }
         return "\(confidenceText) \(Int(totalMilliseconds.rounded()))ms"
     }
+
+    private func diagnosticsHelpText(_ diagnostics: SubjectSegmentationDiagnostics) -> String {
+        [
+            "Core AI SAM3 local",
+            "Model: \(diagnostics.modelVersion)",
+            "Asset: \(diagnostics.assetName ?? "unknown")",
+            "Prompt: \(diagnostics.prompt.title)",
+            "Confidence: \(Int((diagnostics.confidence * 100).rounded()))%",
+            "Input: \(sizeText(diagnostics.inputSize))",
+            "Mask: \(sizeText(diagnostics.outputSize))",
+            "Elapsed: \(elapsedText(diagnostics.timing.totalMilliseconds))",
+        ].joined(separator: "\n")
+    }
+}
+
+private struct SubjectSegmentationDiagnosticsPopover: View {
+    let diagnostics: SubjectSegmentationDiagnostics
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label("Core AI SAM3 local", systemImage: "checkmark.seal.fill")
+                .font(.headline)
+                .foregroundStyle(.green)
+
+            Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 12, verticalSpacing: 6) {
+                diagnosticsRow("Model", diagnostics.modelVersion)
+                diagnosticsRow("Resource", diagnostics.resourceName ?? "unknown")
+                diagnosticsRow("Asset", diagnostics.assetName ?? "unknown")
+                diagnosticsRow("Prompt", diagnostics.prompt.title)
+                diagnosticsRow("Confidence", "\(Int((diagnostics.confidence * 100).rounded()))%")
+                diagnosticsRow("Input", sizeText(diagnostics.inputSize))
+                diagnosticsRow("Mask", sizeText(diagnostics.outputSize))
+                diagnosticsRow("Elapsed", elapsedText(diagnostics.timing.totalMilliseconds))
+            }
+            .font(.caption.monospacedDigit())
+        }
+        .padding(14)
+        .frame(minWidth: 280, alignment: .leading)
+    }
+
+    @ViewBuilder
+    private func diagnosticsRow(_ title: String, _ value: String) -> some View {
+        GridRow {
+            Text(title)
+                .foregroundStyle(.secondary)
+            Text(value)
+                .textSelection(.enabled)
+                .lineLimit(2)
+        }
+    }
+}
+
+private func sizeText(_ size: CGSize) -> String {
+    "\(Int(size.width.rounded())) x \(Int(size.height.rounded()))"
+}
+
+private func elapsedText(_ milliseconds: Double?) -> String {
+    guard let milliseconds else { return "unknown" }
+    if milliseconds >= 1000 {
+        return "\(String(format: "%.1f", milliseconds / 1000))s"
+    }
+    return "\(Int(milliseconds.rounded()))ms"
 }

@@ -618,10 +618,7 @@ struct ZoomOverlayView: View {
                           subjectPrompt == result.prompt
                     else { return }
                     subjectMask = result.mask
-                    subjectSegmentationState = .ready(
-                        confidence: result.confidence,
-                        totalMilliseconds: result.timing.totalMilliseconds,
-                    )
+                    subjectSegmentationState = .ready(result.diagnostics)
                 }
             } catch let error as SubjectSegmentationError {
                 guard !Task.isCancelled, error != .cancelled, error != .staleResponse else { return }

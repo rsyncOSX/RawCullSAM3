@@ -1,5 +1,7 @@
 # Core AI SAM3 Integration Notes
 
+find ~/Library/Developer/Xcode/DerivedData -path '*RawCullSAM3.app/Contents/Resources*SAM3*' | head
+
 RawCullSAM3 now targets the promptable Apple Core AI SAM3 path described in
 WWDC26 session 326, rather than the earlier Vision foreground-mask fallback.
 

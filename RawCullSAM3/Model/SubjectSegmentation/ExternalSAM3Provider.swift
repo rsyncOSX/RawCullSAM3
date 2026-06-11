@@ -72,6 +72,24 @@ nonisolated struct ExternalSAM3Provider: SubjectSegmentationProvider {
             throw SubjectSegmentationError.decodeFailure
         }
 
+        let timing = SubjectSegmentationTiming(
+            preprocessMilliseconds: response.timingMilliseconds?.preprocess,
+            inferenceMilliseconds: response.timingMilliseconds?.inference,
+            postprocessMilliseconds: response.timingMilliseconds?.postprocess,
+            totalMilliseconds: response.timingMilliseconds?.total,
+        )
+        let outputSize = CGSize(width: mask.width, height: mask.height)
+        let diagnostics = SubjectSegmentationDiagnostics(
+            modelVersion: response.modelVersion,
+            prompt: request.prompt,
+            confidence: bestMask.score,
+            timing: timing,
+            inputSize: request.inputSize,
+            outputSize: outputSize,
+            resourceName: endpoint.host(),
+            assetName: endpoint.lastPathComponent,
+        )
+
         return SubjectSegmentationResult(
             fileID: request.fileID,
             requestID: request.requestID,
@@ -80,13 +98,9 @@ nonisolated struct ExternalSAM3Provider: SubjectSegmentationProvider {
             confidence: bestMask.score,
             modelVersion: response.modelVersion,
             inputSize: request.inputSize,
-            outputSize: CGSize(width: mask.width, height: mask.height),
-            timing: SubjectSegmentationTiming(
-                preprocessMilliseconds: response.timingMilliseconds?.preprocess,
-                inferenceMilliseconds: response.timingMilliseconds?.inference,
-                postprocessMilliseconds: response.timingMilliseconds?.postprocess,
-                totalMilliseconds: response.timingMilliseconds?.total,
-            ),
+            outputSize: outputSize,
+            timing: timing,
+            diagnostics: diagnostics,
         )
     }
 }

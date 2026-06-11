@@ -32,6 +32,23 @@ actor CoreAISAM3Provider: SubjectSegmentationProvider {
         }
 
         let mask = try Self.makeMaskImage(from: segment)
+        let timing = SubjectSegmentationTiming(
+            preprocessMilliseconds: nil,
+            inferenceMilliseconds: nil,
+            postprocessMilliseconds: nil,
+            totalMilliseconds: (CFAbsoluteTimeGetCurrent() - totalStart) * 1000,
+        )
+        let outputSize = CGSize(width: mask.width, height: mask.height)
+        let diagnostics = SubjectSegmentationDiagnostics(
+            modelVersion: modelVersion,
+            prompt: request.prompt,
+            confidence: segment.score,
+            timing: timing,
+            inputSize: request.inputSize,
+            outputSize: outputSize,
+            resourceName: Self.resourceName(in: resourcesURL),
+            assetName: Self.assetName(in: resourcesURL),
+        )
         return SubjectSegmentationResult(
             fileID: request.fileID,
             requestID: request.requestID,
@@ -40,13 +57,9 @@ actor CoreAISAM3Provider: SubjectSegmentationProvider {
             confidence: segment.score,
             modelVersion: modelVersion,
             inputSize: request.inputSize,
-            outputSize: CGSize(width: mask.width, height: mask.height),
-            timing: SubjectSegmentationTiming(
-                preprocessMilliseconds: nil,
-                inferenceMilliseconds: nil,
-                postprocessMilliseconds: nil,
-                totalMilliseconds: (CFAbsoluteTimeGetCurrent() - totalStart) * 1000,
-            ),
+            outputSize: outputSize,
+            timing: timing,
+            diagnostics: diagnostics,
         )
     }
 
@@ -89,7 +102,51 @@ actor CoreAISAM3Provider: SubjectSegmentationProvider {
                 return sourceModel
             }
         }
+        if let resourceRoot = bundle.resourceURL,
+           isModelBundle(resourceRoot) {
+            return resourceRoot
+        }
         return nil
+    }
+
+    private nonisolated static func assetName(in resourcesURL: URL?) -> String? {
+        guard let resourcesURL else { return nil }
+        let metadataURL = resourcesURL.appendingPathComponent("metadata.json")
+        guard let data = try? Data(contentsOf: metadataURL),
+              let metadata = try? JSONDecoder().decode(ModelBundleMetadata.self, from: data)
+        else {
+            return resourcesURL.pathExtension.isEmpty ? nil : resourcesURL.lastPathComponent
+        }
+        return metadata.assets["main"]
+    }
+
+    private nonisolated static func resourceName(in resourcesURL: URL?) -> String? {
+        guard let resourcesURL else { return nil }
+        let metadataURL = resourcesURL.appendingPathComponent("metadata.json")
+        guard let data = try? Data(contentsOf: metadataURL),
+              let metadata = try? JSONDecoder().decode(ModelBundleMetadata.self, from: data)
+        else {
+            return resourcesURL.lastPathComponent
+        }
+        if resourcesURL.lastPathComponent == "Resources" {
+            return metadata.name
+        }
+        return resourcesURL.lastPathComponent
+    }
+
+    private nonisolated static func isModelBundle(_ url: URL) -> Bool {
+        guard let assetName = assetName(in: url) else { return false }
+        let assetURL = url.appendingPathComponent(assetName)
+        let tokenizerURL = url.appendingPathComponent("tokenizer.json")
+        let nestedTokenizerURL = url.appendingPathComponent("tokenizer/tokenizer.json")
+        return FileManager.default.fileExists(atPath: assetURL.path)
+            && (FileManager.default.fileExists(atPath: tokenizerURL.path)
+                || FileManager.default.fileExists(atPath: nestedTokenizerURL.path))
+    }
+
+    private nonisolated struct ModelBundleMetadata: Decodable {
+        let name: String?
+        let assets: [String: String]
     }
 
     private nonisolated static func makeMaskImage(from segment: Segment) throws -> CGImage {
