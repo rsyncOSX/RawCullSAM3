@@ -82,9 +82,18 @@ actor CoreAISAM3Provider: SubjectSegmentationProvider {
             )
         }
 
+        let segmenterResourcesURL: URL
+        do {
+            segmenterResourcesURL = try Self.resourcesURLForImageSegmenter(resourcesURL)
+        } catch {
+            throw SubjectSegmentationError.helperError(
+                "Core AI SAM3 resource setup failed: \(Self.message(for: error))",
+            )
+        }
+
         let loadedSegmenter: ImageSegmenter
         do {
-            loadedSegmenter = try await ImageSegmenter(resourcesAt: resourcesURL.path)
+            loadedSegmenter = try await ImageSegmenter(resourcesAt: segmenterResourcesURL.path)
         } catch let error as SubjectSegmentationError {
             throw error
         } catch {
@@ -103,6 +112,60 @@ actor CoreAISAM3Provider: SubjectSegmentationProvider {
             return description
         }
         return String(reflecting: error)
+    }
+
+    private nonisolated static func resourcesURLForImageSegmenter(_ resourcesURL: URL) throws -> URL {
+        let fileManager = FileManager.default
+        let nestedTokenizerURL = resourcesURL.appendingPathComponent("tokenizer/tokenizer.json")
+        if fileManager.fileExists(atPath: nestedTokenizerURL.path) {
+            return resourcesURL
+        }
+
+        let flatTokenizerURL = resourcesURL.appendingPathComponent("tokenizer.json")
+        guard fileManager.fileExists(atPath: flatTokenizerURL.path),
+              let assetName = assetName(in: resourcesURL)
+        else {
+            return resourcesURL
+        }
+
+        let assetURL = resourcesURL.appendingPathComponent(assetName)
+        guard fileManager.fileExists(atPath: assetURL.path) else {
+            return resourcesURL
+        }
+
+        let shimURL = fileManager.temporaryDirectory
+            .appendingPathComponent("RawCullSAM3", isDirectory: true)
+            .appendingPathComponent("CoreAISAM3Bundle", isDirectory: true)
+        if fileManager.fileExists(atPath: shimURL.path) {
+            try fileManager.removeItem(at: shimURL)
+        }
+        try fileManager.createDirectory(
+            at: shimURL.appendingPathComponent("tokenizer", isDirectory: true),
+            withIntermediateDirectories: true,
+        )
+
+        try fileManager.copyItem(
+            at: resourcesURL.appendingPathComponent("metadata.json"),
+            to: shimURL.appendingPathComponent("metadata.json"),
+        )
+        try fileManager.copyItem(
+            at: flatTokenizerURL,
+            to: shimURL.appendingPathComponent("tokenizer/tokenizer.json"),
+        )
+
+        let flatTokenizerConfigURL = resourcesURL.appendingPathComponent("tokenizer_config.json")
+        if fileManager.fileExists(atPath: flatTokenizerConfigURL.path) {
+            try fileManager.copyItem(
+                at: flatTokenizerConfigURL,
+                to: shimURL.appendingPathComponent("tokenizer/tokenizer_config.json"),
+            )
+        }
+
+        try fileManager.createSymbolicLink(
+            at: shimURL.appendingPathComponent(assetName),
+            withDestinationURL: assetURL,
+        )
+        return shimURL
     }
 
     private nonisolated static func loadFailureMessage(for error: Error, resourcesURL: URL) -> String {
