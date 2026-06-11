@@ -235,6 +235,7 @@ struct ZoomOverlayView: View {
                         showSubjectSegmentation: true,
                         showSubjectMask: $showSubjectMask,
                         subjectPrompt: $subjectPrompt,
+                        subjectMaskEnabled: sourceSelection.selected == .embeddedJPG,
                         subjectMaskAvailable: subjectMask != nil,
                         subjectSegmentationState: subjectSegmentationState,
                         onToggleSubjectMask: toggleSubjectMask,
@@ -318,8 +319,11 @@ struct ZoomOverlayView: View {
             rawMessageTask?.cancel()
             rawMessageTask = nil
         }
-        .onChange(of: sourceSelection.selected) { _, _ in
-            cancelSubjectSegmentation(clearMask: true)
+        .onChange(of: sourceSelection.selected) { _, newSource in
+            if newSource != .embeddedJPG {
+                showSubjectMask = false
+                cancelSubjectSegmentation(clearMask: false)
+            }
             reload()
         }
         .onChange(of: viewModel.selectedFile) { _, _ in
@@ -565,6 +569,12 @@ struct ZoomOverlayView: View {
     // MARK: - Subject segmentation
 
     private func toggleSubjectMask() {
+        guard sourceSelection.selected == .embeddedJPG else {
+            showSubjectMask = false
+            cancelSubjectSegmentation(clearMask: false)
+            return
+        }
+
         if showSubjectMask {
             showSubjectMask = false
             cancelSubjectSegmentation(clearMask: false)
@@ -584,7 +594,9 @@ struct ZoomOverlayView: View {
     }
 
     private func regenerateSubjectMaskIfNeeded() async {
-        guard showSubjectMask else { return }
+        guard showSubjectMask,
+              sourceSelection.selected == .embeddedJPG
+        else { return }
         await MainActor.run {
             subjectMask = nil
             subjectSegmentationState = .idle
@@ -593,6 +605,11 @@ struct ZoomOverlayView: View {
     }
 
     private func runSubjectSegmentation() {
+        guard sourceSelection.selected == .embeddedJPG else {
+            showSubjectMask = false
+            subjectSegmentationState = .idle
+            return
+        }
         guard let cg = viewModel.zoomOverlayCGImage,
               let selectedFile = viewModel.selectedFile
         else {
@@ -623,11 +640,13 @@ struct ZoomOverlayView: View {
             } catch let error as SubjectSegmentationError {
                 guard !Task.isCancelled, error != .cancelled, error != .staleResponse else { return }
                 await MainActor.run {
+                    showSubjectMask = false
                     subjectSegmentationState = .failed(error.displayMessage)
                 }
             } catch {
                 guard !Task.isCancelled else { return }
                 await MainActor.run {
+                    showSubjectMask = false
                     subjectSegmentationState = .failed("Core AI SAM3 failed")
                 }
             }

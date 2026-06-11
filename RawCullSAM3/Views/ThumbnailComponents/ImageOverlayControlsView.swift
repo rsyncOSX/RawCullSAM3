@@ -19,6 +19,7 @@ struct ImageOverlayControlsView: View {
     var showSubjectSegmentation: Bool = false
     var showSubjectMask: Binding<Bool>?
     var subjectPrompt: Binding<SubjectSegmentationPrompt>?
+    var subjectMaskEnabled: Bool = true
     var subjectMaskAvailable: Bool = false
     var subjectSegmentationState: SubjectSegmentationControlState = .idle
     var onToggleSubjectMask: (() -> Void)?
@@ -63,22 +64,6 @@ struct ImageOverlayControlsView: View {
                 density: density,
             )
 
-            if showSubjectSegmentation,
-               let showSubjectMask,
-               let subjectPrompt,
-               let onToggleSubjectMask,
-               let onSubjectPromptChange {
-                SubjectSegmentationControlsView(
-                    showSubjectMask: showSubjectMask,
-                    prompt: subjectPrompt,
-                    maskAvailable: subjectMaskAvailable,
-                    state: subjectSegmentationState,
-                    density: density,
-                    onToggle: onToggleSubjectMask,
-                    onPromptChange: onSubjectPromptChange,
-                )
-            }
-
             if hasFocusPoints {
                 FocusPointControllerView(
                     showFocusPoints: $showFocusPoints,
@@ -102,6 +87,20 @@ struct ImageOverlayControlsView: View {
                         )
                     }
                 }
+                .transition(.opacity)
+            }
+
+            if showSubjectSegmentation,
+               let showSubjectMask,
+               let onToggleSubjectMask {
+                SubjectMaskToggleButton(
+                    showSubjectMask: showSubjectMask,
+                    isEnabled: subjectMaskEnabled,
+                    maskAvailable: subjectMaskAvailable,
+                    state: subjectSegmentationState,
+                    density: density,
+                    onToggle: onToggleSubjectMask,
+                )
                 .transition(.opacity)
             }
 

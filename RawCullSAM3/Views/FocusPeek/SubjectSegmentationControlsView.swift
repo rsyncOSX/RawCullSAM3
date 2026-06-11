@@ -150,6 +150,89 @@ struct SubjectSegmentationControlsView: View {
     }
 }
 
+struct SubjectMaskToggleButton: View {
+    @Binding var showSubjectMask: Bool
+    var isEnabled: Bool
+    var maskAvailable: Bool
+    var state: SubjectSegmentationControlState
+    var density: ImageOverlayControlDensity = .regular
+    var onToggle: () -> Void
+
+    var body: some View {
+        Button {
+            withAnimation(.easeInOut(duration: 0.2)) { onToggle() }
+        } label: {
+            Group {
+                if state.isLoading {
+                    ProgressView()
+                        .controlSize(.small)
+                        .fixedSize()
+                } else {
+                    Image(systemName: iconName)
+                        .font(density == .compact ? .body : .title3)
+                        .symbolEffect(.bounce, value: showSubjectMask)
+                }
+            }
+            .frame(width: buttonSize, height: buttonSize)
+            .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(foregroundStyle)
+        .disabled(!isEnabled || state.isLoading)
+        .help(helpText)
+        .padding(.horizontal, density == .compact ? 6 : 10)
+        .padding(.vertical, density == .compact ? 5 : 9)
+        .background(.regularMaterial, in: Capsule())
+        .overlay { Capsule().strokeBorder(.primary.opacity(0.1), lineWidth: 0.5) }
+        .padding(density == .compact ? 2 : 10)
+        .animation(.spring(duration: 0.3), value: showSubjectMask)
+        .animation(.easeInOut(duration: 0.2), value: state)
+    }
+
+    private var foregroundStyle: Color {
+        if !isEnabled {
+            return .secondary
+        }
+        if showSubjectMask {
+            return .green
+        }
+        if case .failed = state {
+            return .orange
+        }
+        return maskAvailable ? .green : .primary
+    }
+
+    private var iconName: String {
+        if showSubjectMask {
+            return "sparkles.square.filled.on.square"
+        }
+        return maskAvailable ? "sparkles.square.on.square" : "sparkle.magnifyingglass"
+    }
+
+    private var helpText: String {
+        if !isEnabled {
+            return "SAM mask requires JPG"
+        }
+        if state.isLoading {
+            return "Building SAM subject mask"
+        }
+        if case let .failed(message) = state {
+            return message
+        }
+        if showSubjectMask {
+            return "Hide SAM subject mask"
+        }
+        if maskAvailable {
+            return "Show cached SAM subject mask"
+        }
+        return "Run SAM subject segmentation"
+    }
+
+    private var buttonSize: CGFloat {
+        density == .compact ? 20 : 28
+    }
+}
+
 private struct SubjectSegmentationDiagnosticsPopover: View {
     let diagnostics: SubjectSegmentationDiagnostics
 
