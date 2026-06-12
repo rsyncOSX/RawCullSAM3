@@ -113,11 +113,7 @@ actor SubjectSegmentationActor {
             ),
         )
         await cache.store(displayResult, for: key)
-        let diskCache = diskCache
-        let maxSide = self.maxSide
-        Task.detached(priority: .background) {
-            await diskCache.save(displayResult, for: fileURL, inputMaxSide: maxSide)
-        }
+        await diskCache.save(displayResult, for: fileURL, inputMaxSide: maxSide)
         return displayResult
     }
 
