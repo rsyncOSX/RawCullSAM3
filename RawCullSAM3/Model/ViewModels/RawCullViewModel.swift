@@ -173,12 +173,14 @@ final class RawCullViewModel {
     var currentExtractAndSaveJPGsActor: ExtractAndSaveJPGs?
     var currentScanAndExtractJPGsActor: ScanAndExtractJPGs?
     var isCreatingSAM3Masks = false
+    var sam3MaskCreationStatusText = ""
     var sam3MaskCreationProgress: SubjectMaskPrefetchProgress?
     var preloadTask: Task<Void, Never>?
     @ObservationIgnored var jpgCacheWarmTask: Task<Void, Never>?
     @ObservationIgnored var catalogLoadTask: Task<Void, Never>?
     @ObservationIgnored var activeCatalogLoadURL: URL?
     @ObservationIgnored var sam3MaskCreationTask: Task<Void, Never>?
+    @ObservationIgnored var sam3MaskHelperController = SAM3MaskHelperController()
     @ObservationIgnored var sam3SubjectSegmentationActor = SubjectSegmentationActor()
     /// In-flight ARW→JPEG extraction or thumbnail load task for the zoom window.
     /// Cancelled when the zoom window closes or a new file is opened for zoom.
@@ -206,7 +208,7 @@ final class RawCullViewModel {
             "RawCull will create missing extracted JPG preview cache images for \(files.count) RAW files in this catalog. Existing cached images will be skipped."
 
         case .createSAM3Masks:
-            "RawCull will create missing SAM3 subject masks for \(sam3MaskCreationCandidateFiles.count) currently filtered files. Existing cached masks will be skipped."
+            "RawCull will start a helper process to create missing SAM3 subject masks for all \(files.count) files in this catalog. Existing cached masks will be skipped. RawCull will restart when the helper completes."
 
         case .clearRatedFiles: "Are you sure you want to clear all rated images?"
 

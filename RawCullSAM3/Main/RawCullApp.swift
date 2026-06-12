@@ -16,6 +16,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_: Notification) {}
 }
 
+#if !SAM3_MASK_BUILDER
 @main
 struct RawCullSAM3App: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
@@ -56,3 +57,4 @@ struct RawCullSAM3App: App {
         viewModel.stopActiveSecurityScopedAccess()
     }
 }
+#endif

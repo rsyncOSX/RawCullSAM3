@@ -3,6 +3,7 @@
 //  RawCull
 //
 
+import AppKit
 import CoreGraphics
 import OSLog
 
@@ -11,6 +12,10 @@ extension RawCullViewModel {
         let candidates = filteredFiles.filter { passesRatingFilter($0) }
         guard !sharpnessModel.sortBySharpness else { return candidates }
         return candidates.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+    }
+
+    var sam3MaskCreationCatalogFiles: [FileItem] {
+        files.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
     }
 
     func fileHandler(_ update: Int) {
@@ -73,19 +78,48 @@ extension RawCullViewModel {
 
     func requestCreateSAM3MasksConfirmation() {
         guard !isCreatingSAM3Masks,
-              !sam3MaskCreationCandidateFiles.isEmpty
+              !sam3MaskCreationCatalogFiles.isEmpty
         else { return }
         alertType = .createSAM3Masks
         showingAlert = true
     }
 
     func startSAM3MaskCreationForFilteredCatalog() {
-        startSAM3MaskCreationForFilteredCatalog(
-            actor: sam3SubjectSegmentationActor,
-            imageLoader: { file in
-                await ZoomPreviewHandler.loadExtractedJPGPreview(for: file.url)
-            },
+        startSAM3MaskCreationHelperForCatalog()
+    }
+
+    func startSAM3MaskCreationHelperForCatalog() {
+        guard !isCreatingSAM3Masks,
+              let catalogURL = selectedSource?.url,
+              !sam3MaskCreationCatalogFiles.isEmpty
+        else { return }
+
+        sam3MaskCreationTask?.cancel()
+        sam3MaskCreationProgress = SubjectMaskPrefetchProgress(
+            completed: 0,
+            total: sam3MaskCreationCatalogFiles.count,
+            cached: 0,
+            generated: 0,
+            failed: 0,
+            currentFileID: sam3MaskCreationCatalogFiles.first?.id,
         )
+        sam3MaskCreationStatusText = "Starting SAM3 mask helper..."
+        isCreatingSAM3Masks = true
+
+        do {
+            try sam3MaskHelperController.start(
+                catalogURL: catalogURL,
+                onEvent: { [weak self] event in
+                    self?.handleSAM3MaskHelperEvent(event)
+                },
+                onExit: { [weak self] exitCode in
+                    self?.handleSAM3MaskHelperExit(exitCode)
+                },
+            )
+        } catch {
+            sam3MaskCreationStatusText = error.localizedDescription
+            isCreatingSAM3Masks = false
+        }
     }
 
     func startSAM3MaskCreationForFilteredCatalog(
@@ -109,13 +143,15 @@ extension RawCullViewModel {
 
         sam3MaskCreationTask = Task(priority: .background) {
             do {
-                try await actor.prefetch(
-                    files: files,
-                    prompt: SAM3SubjectMaskCacheReader.prompt,
+                let pipeline = SAM3MaskGenerationPipeline(
+                    actor: actor,
                     imageLoader: imageLoader,
-                    progress: { progress in
+                )
+                _ = try await pipeline.generate(
+                    files: files,
+                    progress: { event in
                         await MainActor.run {
-                            self.sam3MaskCreationProgress = progress
+                            self.sam3MaskCreationProgress = event.prefetchProgress
                         }
                     },
                 )
@@ -131,9 +167,50 @@ extension RawCullViewModel {
     func cancelSAM3MaskCreation(clearProgress: Bool = false) {
         sam3MaskCreationTask?.cancel()
         sam3MaskCreationTask = nil
+        sam3MaskHelperController.cancel()
         isCreatingSAM3Masks = false
+        sam3MaskCreationStatusText = ""
         if clearProgress {
             sam3MaskCreationProgress = nil
+        }
+    }
+
+    private func handleSAM3MaskHelperEvent(_ event: SAM3MaskBuildEvent) {
+        switch event.kind {
+        case .started:
+            sam3MaskCreationProgress = event.prefetchProgress
+            sam3MaskCreationStatusText = "Creating SAM3 masks..."
+
+        case .progress:
+            sam3MaskCreationProgress = event.prefetchProgress
+            if let currentFileName = event.currentFileName {
+                sam3MaskCreationStatusText = "Creating SAM3 mask: \(currentFileName)"
+            } else {
+                sam3MaskCreationStatusText = "Creating SAM3 masks..."
+            }
+
+        case .completed:
+            sam3MaskCreationProgress = event.prefetchProgress
+            sam3MaskCreationStatusText = "Completed: restarting RawCull"
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(1))
+                NSApplication.shared.terminate(nil)
+            }
+
+        case .failed:
+            sam3MaskCreationStatusText = event.message ?? "SAM3 mask helper failed."
+            isCreatingSAM3Masks = false
+        }
+    }
+
+    private func handleSAM3MaskHelperExit(_ exitCode: Int32) {
+        guard isCreatingSAM3Masks else { return }
+        if sam3MaskCreationStatusText == "Completed: restarting RawCull" {
+            return
+        }
+        isCreatingSAM3Masks = false
+        if exitCode != 0 {
+            sam3MaskCreationStatusText = "SAM3 mask helper exited with code \(exitCode)."
         }
     }
 

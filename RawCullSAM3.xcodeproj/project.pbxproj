@@ -7,6 +7,15 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A00000000000000000000001 /* RawCullSAM3MaskBuilder in CopyFiles */ = {isa = PBXBuildFile; fileRef = A00000000000000000000002 /* RawCullSAM3MaskBuilder */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		A00000000000000000000003 /* RawCullCore in Frameworks */ = {isa = PBXBuildFile; productRef = E9634D6B2FD1D1A0009E567D /* RawCullCore */; };
+		A00000000000000000000004 /* RawParserKit in Frameworks */ = {isa = PBXBuildFile; productRef = E9634D6E2FD1D1B9009E567D /* RawParserKit */; };
+		A00000000000000000000005 /* CoreAISegmentation in Frameworks */ = {isa = PBXBuildFile; productRef = E9A110022F37A00000CA1A13 /* CoreAISegmentation */; };
+		A00000000000000000000006 /* DecodeEncodeGeneric in Frameworks */ = {isa = PBXBuildFile; productRef = E9B609842F28FA3600704081 /* DecodeEncodeGeneric */; };
+		A00000000000000000000007 /* RsyncProcessStreaming in Frameworks */ = {isa = PBXBuildFile; productRef = E9C5897C2F2CA0AC00D8B063 /* RsyncProcessStreaming */; };
+		A00000000000000000000008 /* RsyncArguments in Frameworks */ = {isa = PBXBuildFile; productRef = E92712B22F2CF57E00A681D0 /* RsyncArguments */; };
+		A00000000000000000000009 /* RsyncAnalyse in Frameworks */ = {isa = PBXBuildFile; productRef = E9D876E52F3B053B00119643 /* RsyncAnalyse */; };
+		A0000000000000000000000A /* ParseRsyncOutput in Frameworks */ = {isa = PBXBuildFile; productRef = E952AA612F2E37170081987F /* ParseRsyncOutput */; };
 		A2A66B0BEE3B49A2A6723A52 /* RawCullCore in Frameworks */ = {isa = PBXBuildFile; productRef = B9E553169D0B46E0B6F5FE4F /* RawCullCore */; };
 		E92712B32F2CF57E00A681D0 /* RsyncArguments in Frameworks */ = {isa = PBXBuildFile; productRef = E92712B22F2CF57E00A681D0 /* RsyncArguments */; };
 		E952AA622F2E37170081987F /* ParseRsyncOutput in Frameworks */ = {isa = PBXBuildFile; productRef = E952AA612F2E37170081987F /* ParseRsyncOutput */; };
@@ -21,6 +30,13 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
+		A0000000000000000000000B /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = E90B079A2F1E58EA00A95D4A /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = A0000000000000000000000C;
+			remoteInfo = RawCullSAM3MaskBuilder;
+		};
 		2892081A5CC64AF9827105B9 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = E90B079A2F1E58EA00A95D4A /* Project object */;
@@ -32,6 +48,7 @@
 
 /* Begin PBXFileReference section */
 		333BB66673B648EC8222FD0E /* RawCullSAM3Tests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = RawCullSAM3Tests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		A00000000000000000000002 /* RawCullSAM3MaskBuilder */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = RawCullSAM3MaskBuilder; sourceTree = BUILT_PRODUCTS_DIR; };
 		E90B07A22F1E58EA00A95D4A /* RawCullSAM3.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = RawCullSAM3.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		E97E975C2F210EAB001A4239 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		E97E975D2F210EAB001A4239 /* RawCullicon.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon; path = RawCullicon.icon; sourceTree = "<group>"; };
@@ -52,6 +69,21 @@
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
+		A0000000000000000000000D /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A00000000000000000000003 /* RawCullCore in Frameworks */,
+				A00000000000000000000008 /* RsyncArguments in Frameworks */,
+				A00000000000000000000004 /* RawParserKit in Frameworks */,
+				A00000000000000000000006 /* DecodeEncodeGeneric in Frameworks */,
+				A00000000000000000000007 /* RsyncProcessStreaming in Frameworks */,
+				A00000000000000000000005 /* CoreAISegmentation in Frameworks */,
+				A00000000000000000000009 /* RsyncAnalyse in Frameworks */,
+				A0000000000000000000000A /* ParseRsyncOutput in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		B37F837B220D45D0ADA3C37F /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -94,6 +126,7 @@
 			isa = PBXGroup;
 			children = (
 				E90B07A22F1E58EA00A95D4A /* RawCullSAM3.app */,
+				A00000000000000000000002 /* RawCullSAM3MaskBuilder */,
 				333BB66673B648EC8222FD0E /* RawCullSAM3Tests.xctest */,
 			);
 			name = Products;
@@ -102,6 +135,35 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		A0000000000000000000000C /* RawCullSAM3MaskBuilder */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A00000000000000000000011 /* Build configuration list for PBXNativeTarget "RawCullSAM3MaskBuilder" */;
+			buildPhases = (
+				A0000000000000000000000E /* Sources */,
+				A0000000000000000000000D /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				E90B07A42F1E58EA00A95D4A /* RawCullSAM3 */,
+			);
+			name = RawCullSAM3MaskBuilder;
+			packageProductDependencies = (
+				E9B609842F28FA3600704081 /* DecodeEncodeGeneric */,
+				E9C5897C2F2CA0AC00D8B063 /* RsyncProcessStreaming */,
+				E92712B22F2CF57E00A681D0 /* RsyncArguments */,
+				E952AA612F2E37170081987F /* ParseRsyncOutput */,
+				E9D876E52F3B053B00119643 /* RsyncAnalyse */,
+				E9634D6B2FD1D1A0009E567D /* RawCullCore */,
+				E9634D6E2FD1D1B9009E567D /* RawParserKit */,
+				E9A110022F37A00000CA1A13 /* CoreAISegmentation */,
+			);
+			productName = RawCullSAM3MaskBuilder;
+			productReference = A00000000000000000000002 /* RawCullSAM3MaskBuilder */;
+			productType = "com.apple.product-type.tool";
+		};
 		5461A5B2FEC44E7E9F05B0A9 /* RawCullSAM3Tests */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = BBEE5E760C504CEFAD52FE05 /* Build configuration list for PBXNativeTarget "RawCullSAM3Tests" */;
@@ -133,10 +195,12 @@
 				E90B079E2F1E58EA00A95D4A /* Sources */,
 				E90B079F2F1E58EA00A95D4A /* Frameworks */,
 				E90B07A02F1E58EA00A95D4A /* Resources */,
+				A00000000000000000000010 /* Copy Helper */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				A0000000000000000000000F /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				E90B07A42F1E58EA00A95D4A /* RawCullSAM3 */,
@@ -170,6 +234,9 @@
 						CreatedOnToolsVersion = 26.2;
 						TestTargetID = E90B07A12F1E58EA00A95D4A;
 					};
+					A0000000000000000000000C = {
+						CreatedOnToolsVersion = 26.2;
+					};
 					E90B07A12F1E58EA00A95D4A = {
 						CreatedOnToolsVersion = 26.2;
 					};
@@ -200,10 +267,25 @@
 			projectRoot = "";
 			targets = (
 				E90B07A12F1E58EA00A95D4A /* RawCullSAM3 */,
+				A0000000000000000000000C /* RawCullSAM3MaskBuilder */,
 				5461A5B2FEC44E7E9F05B0A9 /* RawCullSAM3Tests */,
 			);
 		};
 /* End PBXProject section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		A00000000000000000000010 /* Copy Helper */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 6;
+			files = (
+				A00000000000000000000001 /* RawCullSAM3MaskBuilder in CopyFiles */,
+			);
+			name = "Copy Helper";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXResourcesBuildPhase section */
 		C7BB548B64CF46DC9B5BC682 /* Resources */ = {
@@ -225,6 +307,13 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		A0000000000000000000000E /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		34F079219DF8410D852D9900 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -242,6 +331,11 @@
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
+		A0000000000000000000000F /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = A0000000000000000000000C /* RawCullSAM3MaskBuilder */;
+			targetProxy = A0000000000000000000000B /* PBXContainerItemProxy */;
+		};
 		BE6762B0EE904C5E93681D67 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = E90B07A12F1E58EA00A95D4A /* RawCullSAM3 */;
@@ -250,6 +344,73 @@
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
+		A00000000000000000000012 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_ENTITLEMENTS = RawCullSAM3.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 110;
+				DEAD_CODE_STRIPPING = YES;
+				DEVELOPMENT_TEAM = 93M47F4H9T;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_USER_SELECTED_FILES = readwrite;
+				EXCLUDED_SOURCE_FILE_NAMES = Kernels.ci.metal;
+				GENERATE_INFOPLIST_FILE = NO;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 27.0;
+				MARKETING_VERSION = 2.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = no.blogspot.RawCullSAM3.MaskBuilder;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG SAM3_MASK_BUILDER $(inherited)";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_UPCOMING_FEATURE_DISABLE_OUTWARD_ACTOR_ISOLATION = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = NO;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+		A00000000000000000000013 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_ENTITLEMENTS = RawCullSAM3.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 110;
+				DEAD_CODE_STRIPPING = YES;
+				DEVELOPMENT_TEAM = 93M47F4H9T;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_USER_SELECTED_FILES = readwrite;
+				EXCLUDED_SOURCE_FILE_NAMES = Kernels.ci.metal;
+				GENERATE_INFOPLIST_FILE = NO;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 27.0;
+				MARKETING_VERSION = 2.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = no.blogspot.RawCullSAM3.MaskBuilder;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "SAM3_MASK_BUILDER $(inherited)";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_DISABLE_OUTWARD_ACTOR_ISOLATION = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = NO;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
 		3B4D25F32B64430EBE72C256 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -548,6 +709,15 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		A00000000000000000000011 /* Build configuration list for PBXNativeTarget "RawCullSAM3MaskBuilder" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A00000000000000000000012 /* Debug */,
+				A00000000000000000000013 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		BBEE5E760C504CEFAD52FE05 /* Build configuration list for PBXNativeTarget "RawCullSAM3Tests" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (

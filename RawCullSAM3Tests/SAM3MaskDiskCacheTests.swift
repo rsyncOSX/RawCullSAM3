@@ -346,6 +346,39 @@ struct SubjectSegmentationActorCacheTests {
     }
 
     @Test
+    func `generation pipeline emits started progress and completed events`() async throws {
+        let root = try makeSAM3CacheTestRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let source = try makeSAM3CacheSource(in: root)
+        let diskCache = SAM3MaskDiskCache(cacheDirectory: root.appendingPathComponent("Masks", isDirectory: true))
+        let provider = FakeSubjectSegmentationProvider()
+        let actor = SubjectSegmentationActor(
+            provider: provider,
+            cache: SubjectMaskCache(),
+            diskCache: diskCache,
+            maxSide: SAM3SubjectMaskCacheReader.inputMaxSide,
+        )
+        let image = try makeSAM3CacheTestCGImage(width: 24, height: 12)
+        let file = makeSAM3TestFileItem(url: source)
+        let recorder = SAM3MaskBuildEventRecorder()
+        let pipeline = SAM3MaskGenerationPipeline(
+            actor: actor,
+            imageLoader: { _ in image },
+        )
+
+        let summary = try await pipeline.generate(files: [file]) { event in
+            await recorder.record(event)
+        }
+        let events = await recorder.events()
+
+        #expect(summary.total == 1)
+        #expect(summary.generated == 1)
+        #expect(events.first?.kind == .started)
+        #expect(events.contains { $0.kind == .progress && $0.currentFileName == "source.ARW" })
+        #expect(events.last?.kind == .completed)
+    }
+
+    @Test
     func `prefetch stops on cancellation`() async throws {
         let root = try makeSAM3CacheTestRoot()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -381,6 +414,18 @@ struct SubjectSegmentationActorCacheTests {
             try await task.value
             Issue.record("Prefetch completed despite cancellation")
         } catch is CancellationError {}
+    }
+}
+
+private actor SAM3MaskBuildEventRecorder {
+    private var recordedEvents: [SAM3MaskBuildEvent] = []
+
+    func record(_ event: SAM3MaskBuildEvent) {
+        recordedEvents.append(event)
+    }
+
+    func events() -> [SAM3MaskBuildEvent] {
+        recordedEvents
     }
 }
 
@@ -440,6 +485,25 @@ struct SAM3SubjectMaskCacheReaderTests {
         let loaded = await SAM3SubjectMaskCacheReader.loadCachedMask(for: file, diskCache: diskCache)
 
         #expect(loaded == nil)
+    }
+
+    @Test
+    func `build event JSON round trip preserves progress payload`() throws {
+        let progress = SubjectMaskPrefetchProgress(
+            completed: 2,
+            total: 5,
+            cached: 1,
+            generated: 1,
+            failed: 0,
+            currentFileID: UUID(),
+        )
+        let event = SAM3MaskBuildEvent.progress(progress, currentFileName: "two.ARW")
+
+        let data = try JSONEncoder().encode(event)
+        let decoded = try JSONDecoder().decode(SAM3MaskBuildEvent.self, from: data)
+
+        #expect(decoded == event)
+        #expect(decoded.prefetchProgress?.remaining == 3)
     }
 }
 

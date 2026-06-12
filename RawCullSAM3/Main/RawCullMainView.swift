@@ -44,6 +44,22 @@ struct RawCullMainView: View {
                     .transition(.opacity)
                     .zIndex(10)
             }
+
+            if viewModel.isCreatingSAM3Masks {
+                Color.black.opacity(0.08)
+                    .ignoresSafeArea()
+                    .zIndex(20)
+
+                SAM3MaskHelperProgressView(
+                    progress: viewModel.sam3MaskCreationProgress,
+                    statusText: viewModel.sam3MaskCreationStatusText,
+                    onCancel: {
+                        viewModel.cancelSAM3MaskCreation()
+                    },
+                )
+                .transition(.scale(scale: 0.96).combined(with: .opacity))
+                .zIndex(21)
+            }
         }
         .sheet(item: $viewModel.activeSheet) { sheet in
             switch sheet {

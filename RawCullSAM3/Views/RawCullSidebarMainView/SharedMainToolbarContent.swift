@@ -184,13 +184,13 @@ struct SharedMainToolbarContent: ToolbarContent {
         if viewModel.isCreatingSAM3Masks {
             return "Cancel SAM3 mask creation"
         }
-        return "Create SAM3 subject masks for the currently filtered files"
+        return "Create SAM3 subject masks for the full selected catalog"
     }
 
     private var sam3ToolbarIsDisabled: Bool {
         if viewModel.isCreatingSAM3Masks { return false }
         return viewModel.selectedSource == nil ||
-            viewModel.sam3MaskCreationCandidateFiles.isEmpty ||
+            viewModel.sam3MaskCreationCatalogFiles.isEmpty ||
             viewModel.creatingthumbnails
     }
 
