@@ -1,21 +1,43 @@
+import OSLog
 import SwiftUI
 import UniformTypeIdentifiers
 
 extension KeyPath: @unchecked @retroactive Sendable where Root == FileItem {}
 
 struct RawCullMainView: View {
+    @Environment(\.openWindow) var openWindow
+    @Environment(GridThumbnailViewModel.self) var gridthumbnailviewmodel
+
     @Bindable var viewModel: RawCullViewModel
 
     @State private var memoryWarningOpacity: Double = 0.3
     @State private var memoryMonitorModel = MemoryViewModel(pressureThresholdFactor: 0.85)
-    @State private var columnVisibility = NavigationSplitViewVisibility.doubleColumn
+    @State var columnVisibility = NavigationSplitViewVisibility.doubleColumn
 
     @State private var cgImage: CGImage?
     @State private var nsImage: NSImage?
+    @State private var showCandidateInspector = false
 
     var body: some View {
         ZStack {
-            loupeSplit
+            Group {
+                switch viewModel.mainViewMode {
+                case .loupe:
+                    loupeSplit
+
+                case .grid:
+                    gridSplit
+
+                case .similarityGrid:
+                    similarityGridSplit
+
+                case .ratedGrid:
+                    ratedGridSplit
+
+                case .comparisonGrid:
+                    comparisonGridSplit
+                }
+            }
 
             if viewModel.zoomOverlayVisible {
                 ZoomOverlayView(viewModel: viewModel)
@@ -23,12 +45,51 @@ struct RawCullMainView: View {
                     .zIndex(10)
             }
         }
+        .sheet(item: $viewModel.activeSheet) { sheet in
+            switch sheet {
+            case .stats:
+                ScanStatsSheetView(viewModel: viewModel)
+
+            case .scoringParams:
+                ScoringParametersSheetView(
+                    config: Bindable(viewModel.sharpnessModel.focusMaskModel).config,
+                    thumbnailMaxPixelSize: Bindable(viewModel.sharpnessModel).thumbnailMaxPixelSize,
+                    scoringQuality: Bindable(viewModel.sharpnessModel).scoringQuality,
+                    scoringSource: Bindable(viewModel.sharpnessModel).scoringSource,
+                )
+            }
+        }
+        .sheet(isPresented: $viewModel.showSavedFiles) {
+            SavedFilesView()
+        }
         .sheet(item: $viewModel.rawDiagnosticsPresentation) { presentation in
             RawFileDiagnosticsView(log: presentation.log) {
                 viewModel.rawDiagnosticsPresentation = nil
             }
         }
+        .sheet(isPresented: $viewModel.showcopyARWFilesView) {
+            CopyARWFilesView(
+                viewModel: viewModel,
+                sheetType: $viewModel.sheetType,
+                selectedSource: $viewModel.selectedSource,
+                remotedatanumbers: $viewModel.remotedatanumbers,
+                showcopytask: $viewModel.showcopyARWFilesView,
+            )
+        }
+        .onChange(of: viewModel.mainViewMode) { _, newMode in
+            if newMode == .grid || newMode == .similarityGrid {
+                gridthumbnailviewmodel.open(
+                    cullingModel: viewModel.cullingModel,
+                    selectedSource: viewModel.selectedSource,
+                    filteredFiles: viewModel.filteredFiles,
+                )
+            } else {
+                gridthumbnailviewmodel.close()
+            }
+        }
     }
+
+    // MARK: - Loupe mode (3-column split)
 
     private var loupeSplit: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
@@ -153,6 +214,94 @@ struct RawCullMainView: View {
             }
         }
     }
+
+    // MARK: - Grid mode
+
+    private var gridSplit: some View {
+        GridThumbnailView(
+            viewModel: viewModel,
+            nsImage: $nsImage,
+            cgImage: $cgImage,
+        )
+        .navigationTitle((viewModel.selectedSource?.name ?? "Files") +
+            " (\(viewModel.filteredFiles.count) files)")
+        .toolbar { toolbarContent }
+    }
+
+    // MARK: - Similarity grid mode
+
+    private var similarityGridSplit: some View {
+        SimilarityGridView(
+            viewModel: viewModel,
+            nsImage: $nsImage,
+            cgImage: $cgImage,
+        )
+        .navigationTitle((viewModel.selectedSource?.name ?? "Files") +
+            " (\(viewModel.filteredFiles.count) files)")
+        .toolbar { toolbarContent }
+    }
+
+    // MARK: - Rated grid mode
+
+    private var ratedGridSplit: some View {
+        RatedPhotoGridView(
+            viewModel: viewModel,
+            catalogURL: viewModel.selectedSource?.url,
+            onPhotoSelected: { file in
+                viewModel.selectedFileID = file.id
+            },
+        )
+        .navigationTitle("Rated images")
+        .toolbar { toolbarContent }
+    }
+
+    // MARK: - Comparison grid mode
+
+    private var comparisonGridSplit: some View {
+        NavigationSplitView(columnVisibility: $columnVisibility) {
+            RAWCatalogSidebarView(
+                sources: $viewModel.sources,
+                selectedSource: $viewModel.selectedSource,
+                isShowingPicker: $viewModel.isShowingPicker,
+                cullingModel: viewModel.cullingModel,
+            )
+        } detail: {
+            ComparisonGridView(
+                viewModel: viewModel,
+                showCandidateInspector: $showCandidateInspector,
+            )
+            .navigationTitle("Compare images")
+            .toolbar { toolbarContent }
+            .inspector(isPresented: $showCandidateInspector) {
+                CandidateInspectorView(context: candidateInspectorContext)
+            }
+        }
+        .task {
+            columnVisibility = .detailOnly
+        }
+        .fileImporter(isPresented: $viewModel.isShowingPicker, allowedContentTypes: [.folder]) { result in
+            handlePickerResult(result)
+        }
+        .task(id: viewModel.selectedSource) {
+            viewModel.startCatalogLoad(for: viewModel.selectedSource)
+        }
+    }
+
+    private var candidateInspectorContext: CandidateInspectorContext? {
+        guard let groupID = viewModel.activeBurstComparisonGroupID else { return nil }
+        return CandidateInspectorContext.make(
+            selectedFile: viewModel.selectedFile,
+            result: viewModel.burstAnalysisResult(for: groupID),
+            files: viewModel.files,
+            saliencyInfo: viewModel.sharpnessModel.saliencyInfo,
+            sharpnessScores: viewModel.sharpnessModel.scores,
+            sharpnessBreakdowns: viewModel.sharpnessModel.breakdowns,
+            focusPoints: viewModel.focusPoints,
+            rating: viewModel.selectedFile.map { viewModel.getRating(for: $0) } ?? 0,
+        )
+    }
+
+    // MARK: - Actions
 
     func abort() {
         viewModel.abort()

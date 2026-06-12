@@ -20,12 +20,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 struct RawCullSAM3App: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
 
+    @State private var gridthumbnailviewmodel = GridThumbnailViewModel()
     @State private var viewModel = RawCullViewModel()
 
     var body: some Scene {
         Window("RawCullSAM3", id: "main-window") {
             RawCullMainView(viewModel: viewModel)
                 .background(.windowBackground)
+                .environment(gridthumbnailviewmodel)
                 .environment(viewModel)
                 .task {
                     await viewModel.applyStoredScoringSettings()
