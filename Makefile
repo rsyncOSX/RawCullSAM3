@@ -1,6 +1,7 @@
+# make build-release
+# make install-sam3-model
 # sudo ditto "$(make print-release-app)" "/Applications/RawCullSAM3.app"
-# find "/Applications/RawCullSAM3.app/Contents/Resources" -name "sam3_float16_source.h16c.aimodelc" -type d -print
-# find "/Applications/RawCullSAM3.app/Contents/Resources" \( -name "metadata.json" -o -name "tokenizer.json" \) -print
+# open "/Applications/RawCullSAM3.app"
 
 APP ?= RawCullSAM3
 SCHEME ?= RawCullSAM3
@@ -91,6 +92,7 @@ PERFORMANCE_ONLY_TESTING = \
 	'-only-testing:RawCullSAM3Tests/DataRaceDetectionTests/`Extreme concurrent load reveals no data races`()'
 
 SAM3_BUNDLE_DIR = RawCullSAM3/Resources/Models/SAM3
+SAM3_INSTALL_DIR ?= $(HOME)/Library/Application Support/RawCull/Models/SAM3
 SAM3_COMPILE_ARCH ?= h16c
 SAM3_ASSET ?= sam3_float16.aimodel
 SAM3_GPU_ASSET ?= sam3_float16_source.gpu.aimodelc
@@ -120,30 +122,26 @@ build-debug:
 	@$(MAKE) print-debug-app
 
 verify-release-model:
-	@APP_BUNDLE="$$(find "$(DERIVED_DATA_ROOT)" -path "*/Build/Products/Release/$(APP).app" -not -path "*/Index.noindex/*" -type d -print -quit)"; \
-	$(MAKE) verify-model APP_BUNDLE="$$APP_BUNDLE"
+	@$(MAKE) verify-model
 
 verify-debug-model:
-	@APP_BUNDLE="$$(find "$(DERIVED_DATA_ROOT)" -path "*/Build/Products/Debug/$(APP).app" -not -path "*/Index.noindex/*" -type d -print -quit)"; \
-	$(MAKE) verify-model APP_BUNDLE="$$APP_BUNDLE"
+	@$(MAKE) verify-model
 
 verify-model:
+	@test -d "$(SAM3_INSTALL_DIR)" || (echo "Missing installed SAM3 bundle: $(SAM3_INSTALL_DIR)" && exit 1)
+	@test -f "$(SAM3_INSTALL_DIR)/metadata.json" || (echo "Missing installed SAM3 metadata.json" && exit 1)
+	@test -f "$(SAM3_INSTALL_DIR)/tokenizer/tokenizer.json" || (echo "Missing installed SAM3 tokenizer/tokenizer.json" && exit 1)
+	@SAM3_INSTALLED_ASSET="$$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1])).get("assets", {}).get("main", ""))' "$(SAM3_INSTALL_DIR)/metadata.json")"; \
+	test -n "$$SAM3_INSTALLED_ASSET" || (echo "Installed SAM3 metadata.json does not define assets.main" && exit 1); \
+	test -e "$(SAM3_INSTALL_DIR)/$$SAM3_INSTALLED_ASSET" || (echo "Missing installed SAM3 asset: $$SAM3_INSTALLED_ASSET" && exit 1); \
+	echo "SAM3 model installed at $(SAM3_INSTALL_DIR) using $$SAM3_INSTALLED_ASSET"
+
+install-sam3-model:
 	@test -d "$(SAM3_BUNDLE_DIR)" || (echo "Missing local SAM3 bundle: $(SAM3_BUNDLE_DIR)" && exit 1)
-	@test -f "$(SAM3_BUNDLE_DIR)/metadata.json" || (echo "Missing SAM3 metadata.json" && exit 1)
-	@test -d "$(SAM3_BUNDLE_DIR)/$(SAM3_ASSET)" || (echo "Missing local SAM3 asset: $(SAM3_ASSET)" && exit 1)
-	@test -d "$(APP_BUNDLE)" || (echo "Missing app bundle: $(APP_BUNDLE)" && exit 1)
-	@if [ -d "$(APP_BUNDLE)/Contents/Resources/Models/SAM3/$(SAM3_ASSET)" ]; then \
-		echo "SAM3 model copied as Models/SAM3/$(SAM3_ASSET)"; \
-	elif [ -d "$(APP_BUNDLE)/Contents/Resources/SAM3/$(SAM3_ASSET)" ]; then \
-		echo "SAM3 model copied as SAM3/$(SAM3_ASSET)"; \
-	elif [ -d "$(APP_BUNDLE)/Contents/Resources/$(SAM3_ASSET)" ]; then \
-		test -f "$(APP_BUNDLE)/Contents/Resources/metadata.json" || (echo "Missing flattened SAM3 metadata.json in app bundle" && exit 1); \
-		test -f "$(APP_BUNDLE)/Contents/Resources/tokenizer.json" -o -f "$(APP_BUNDLE)/Contents/Resources/tokenizer/tokenizer.json" || (echo "Missing SAM3 tokenizer in app bundle" && exit 1); \
-		echo "SAM3 model copied as flattened resource $(SAM3_ASSET)"; \
-	else \
-		echo "SAM3 model asset was not copied into $(APP_BUNDLE)/Contents/Resources"; \
-		exit 1; \
-	fi
+	@test -f "$(SAM3_BUNDLE_DIR)/metadata.json" || (echo "Missing local SAM3 metadata.json" && exit 1)
+	@mkdir -p "$$(dirname "$(SAM3_INSTALL_DIR)")"
+	@rsync -a --exclude .DS_Store "$(SAM3_BUNDLE_DIR)/" "$(SAM3_INSTALL_DIR)/"
+	@$(MAKE) verify-model
 
 sam3-export:
 	uv run tools/export_sam3.py --dtype float16 --overwrite
@@ -178,6 +176,6 @@ print-release-app:
 print-debug-app:
 	@find "$(DERIVED_DATA_ROOT)" -path "*/Build/Products/Debug/$(APP).app" -not -path "*/Index.noindex/*" -type d -print -quit
 
-.PHONY: release debug build-release build-debug verify-release-model verify-debug-model verify-model \
+.PHONY: release debug build-release build-debug verify-release-model verify-debug-model verify-model install-sam3-model \
 	sam3-export sam3-compile sam3-compile-gpu sam3-compile-all sam3-use-asset clean test-smoke test-full test-performance \
 	print-release-app print-debug-app

@@ -21,21 +21,26 @@ maps those choices to the text prompts passed to Core AI SAM3.
 
 ## Model Resource
 
-For the first implementation, RawCull uses a local bundled model asset. Generate
-the Core AI model bundle under `RawCullSAM3/Resources/Models/SAM3`. The Swift
-runtime package expects a model-bundle directory containing `metadata.json`,
-`assets.main`, and SAM3 tokenizer assets.
+RawCull treats SAM3 as an external runtime model. Generate or stage the Core AI
+model bundle under `RawCullSAM3/Resources/Models/SAM3`, then install it for app
+runtime use at:
+
+```text
+~/Library/Application Support/RawCull/Models/SAM3
+```
+
+The Swift runtime package expects a model-bundle directory containing
+`metadata.json`, `assets.main`, and SAM3 tokenizer assets.
 
 For migration/dev convenience, RawCull also checks for `SAM3.aimodelc` and
 `SAM3.aimodel`, but the Apple package's high-level `ImageSegmenter` initializer
 loads the model-bundle directory shape. Keep the exported `.aimodel` name in
 sync with the bundle's `metadata.json` `assets.main` value.
 
-RawCull searches both `Contents/Resources/Models` and the app bundle resource
-root. Xcode can flatten folder-synchronized resources into
-`Contents/Resources`. The provider handles that app-bundle shape by creating a
-temporary model-bundle view with `tokenizer/tokenizer.json` and a symlink to the
-large `.aimodel` asset before calling `ImageSegmenter(resourcesAt:)`.
+RawCull checks the Application Support install location first. Debug builds may
+also fall back to a bundled model directory for local development, but release
+and App Store builds should not include the SAM3 model files in
+`RawCullSAM3.app`.
 
 The bundled `.aimodel` can be used directly. Core AI will specialize it on
 first load, so ahead-of-time compilation is optional.
@@ -99,7 +104,7 @@ After export, `metadata.json` should point at the runtime model:
 
 The repository `Makefile` is intentionally small now. It keeps the normal local
 workflow focused on building RawCullSAM3 and verifying that the selected SAM3
-asset is actually present in the generated `.app` bundle.
+asset is installed outside the signed app bundle.
 
 The default command is the release build:
 
@@ -131,35 +136,38 @@ xcodebuild \
   build
 ```
 
-After the build finishes, `verify-release-model` finds the built
-`RawCullSAM3.app` in Xcode DerivedData and checks that the local model was
-copied into the app bundle.
-
-The current selected model asset is:
+After the build finishes, `verify-release-model` checks the external model
+install location:
 
 ```text
-sam3_float16.aimodel
+~/Library/Application Support/RawCull/Models/SAM3
 ```
 
-The verification step accepts the layouts RawCull can load at runtime:
+Install the local development model bundle there with:
 
-```text
-RawCullSAM3.app/Contents/Resources/Models/SAM3/sam3_float16.aimodel
-RawCullSAM3.app/Contents/Resources/SAM3/sam3_float16.aimodel
-RawCullSAM3.app/Contents/Resources/sam3_float16.aimodel
+```sh
+make install-sam3-model
 ```
 
-For the flattened Xcode resource layout, it also checks for:
+This copies:
 
 ```text
-RawCullSAM3.app/Contents/Resources/metadata.json
-RawCullSAM3.app/Contents/Resources/tokenizer.json
+RawCullSAM3/Resources/Models/SAM3
 ```
 
-or:
+to:
 
 ```text
-RawCullSAM3.app/Contents/Resources/tokenizer/tokenizer.json
+~/Library/Application Support/RawCull/Models/SAM3
+```
+
+The verification step reads `assets.main` from the installed `metadata.json`.
+It requires:
+
+```text
+~/Library/Application Support/RawCull/Models/SAM3/metadata.json
+~/Library/Application Support/RawCull/Models/SAM3/tokenizer/tokenizer.json
+~/Library/Application Support/RawCull/Models/SAM3/<assets.main>
 ```
 
 Use the debug build when you want faster local iteration:
@@ -175,8 +183,8 @@ build-debug
 verify-debug-model
 ```
 
-It builds the app with `-configuration Debug`, then performs the same SAM3
-bundle verification against the Debug app in DerivedData.
+It builds the app with `-configuration Debug`, then performs the same external
+SAM3 model verification.
 
 If you only want to build and skip the model verification, use:
 
@@ -185,26 +193,29 @@ make build-release
 make build-debug
 ```
 
-If you already built in Xcode and only want to check whether the model landed in
-the app bundle, use:
+If you already built in Xcode and only want to check whether the external model
+is installed, use:
 
 ```sh
-make verify-release-model
-make verify-debug-model
+make verify-model
 ```
 
-The verification targets use this local model path as their source of truth:
+For local release testing, use:
+
+```sh
+make build-release
+make install-sam3-model
+sudo ditto "$(make print-release-app)" "/Applications/RawCullSAM3.app"
+open "/Applications/RawCullSAM3.app"
+```
+
+Do not copy SAM3 model files into:
 
 ```text
-RawCullSAM3/Resources/Models/SAM3
+/Applications/RawCullSAM3.app/Contents/Resources
 ```
 
-They require:
-
-```text
-RawCullSAM3/Resources/Models/SAM3/metadata.json
-RawCullSAM3/Resources/Models/SAM3/sam3_float16.aimodel
-```
+Changing the app bundle after signing can invalidate the app signature.
 
 To print the latest discovered app bundle path without rebuilding:
 
