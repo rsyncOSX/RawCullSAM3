@@ -1,0 +1,576 @@
+import Foundation
+@testable import RawCullSAM3
+import RawCullCore
+import Testing
+
+private actor SavedFilesRecorder {
+    private var snapshots: [[SavedFiles]] = []
+
+    func record(_ savedFiles: [SavedFiles]) {
+        snapshots.append(savedFiles)
+    }
+
+    func waitForSnapshotCount(_ count: Int) async -> [[SavedFiles]] {
+        for _ in 0 ..< 200 {
+            if snapshots.count >= count { return snapshots }
+            try? await Task.sleep(nanoseconds: 1_000_000)
+        }
+        return snapshots
+    }
+}
+
+private func makeCullingTestFile(_ name: String, scoreAperture: Double? = nil) -> FileItem {
+    let exif = scoreAperture.map {
+        ExifMetadata(
+            shutterSpeed: nil,
+            focalLength: nil,
+            aperture: "f/\($0)",
+            apertureValue: $0,
+            iso: nil,
+            isoValue: nil,
+            camera: nil,
+            lensModel: nil,
+            rawFileType: nil,
+            rawSizeClass: nil,
+            pixelWidth: nil,
+            pixelHeight: nil,
+        )
+    }
+    return FileItem(
+        url: URL(fileURLWithPath: "/tmp/\(name)"),
+        name: name,
+        size: 1,
+        dateModified: Date(timeIntervalSince1970: 0),
+        exifData: exif,
+        afFocusNormalized: nil,
+    )
+}
+
+@MainActor
+struct CullingModelTests {
+    @Test
+    func `updateRating creates catalog record and debounced save snapshot`() async {
+        let recorder = SavedFilesRecorder()
+        let model = CullingModel(saveDelayNanoseconds: 0) { savedFiles in
+            await recorder.record(savedFiles)
+        }
+        let catalog = URL(fileURLWithPath: "/tmp/catalog-\(UUID().uuidString)")
+
+        model.updateRating(fileName: "one.ARW", rating: 3, in: catalog)
+        let snapshots = await recorder.waitForSnapshotCount(1)
+
+        #expect(model.countSelectedFiles(in: catalog) == 1)
+        #expect(model.savedFiles.first?.catalog == catalog)
+        #expect(model.savedFiles.first?.filerecords?.first?.fileName == "one.ARW")
+        #expect(model.savedFiles.first?.filerecords?.first?.rating == 3)
+        #expect(snapshots.last?.first?.filerecords?.first?.rating == 3)
+    }
+
+    @Test
+    func `updateRatings and applyRatings upsert existing records`() async {
+        let recorder = SavedFilesRecorder()
+        let model = CullingModel(saveDelayNanoseconds: 0) { savedFiles in
+            await recorder.record(savedFiles)
+        }
+        let catalog = URL(fileURLWithPath: "/tmp/catalog-\(UUID().uuidString)")
+
+        model.updateRatings(fileNames: ["one.ARW", "two.ARW"], rating: 2, in: catalog)
+        model.applyRatings(["two.ARW": -1, "three.ARW": 5], in: catalog)
+        _ = await recorder.waitForSnapshotCount(1)
+
+        let records = model.savedFiles.first?.filerecords ?? []
+        let ratings = Dictionary(uniqueKeysWithValues: records.compactMap { record -> (String, Int)? in
+            guard let fileName = record.fileName, let rating = record.rating else { return nil }
+            return (fileName, rating)
+        })
+
+        #expect(ratings == ["one.ARW": 2, "two.ARW": -1, "three.ARW": 5])
+    }
+
+    @Test
+    func `mergeScoringResults preserves ratings and writes scores`() async {
+        let recorder = SavedFilesRecorder()
+        let model = CullingModel(saveDelayNanoseconds: 0) { savedFiles in
+            await recorder.record(savedFiles)
+        }
+        let catalog = URL(fileURLWithPath: "/tmp/catalog-\(UUID().uuidString)")
+
+        model.updateRating(fileName: "one.ARW", rating: 4, in: catalog)
+        model.mergeScoringResults(
+            [CullingScoringResult(fileName: "one.ARW", score: 0.75, saliencySubject: "bird")],
+            in: catalog,
+        )
+        _ = await recorder.waitForSnapshotCount(1)
+
+        let record = model.savedFiles.first?.filerecords?.first
+        #expect(record?.rating == 4)
+        #expect(record?.sharpnessScore == 0.75)
+        #expect(record?.saliencySubject == "bird")
+    }
+
+    @Test
+    func `resetSavedFiles clears records for catalog`() async {
+        let recorder = SavedFilesRecorder()
+        let model = CullingModel(saveDelayNanoseconds: 0) { savedFiles in
+            await recorder.record(savedFiles)
+        }
+        let catalog = URL(fileURLWithPath: "/tmp/catalog-\(UUID().uuidString)")
+
+        model.updateRatings(fileNames: ["one.ARW", "two.ARW"], rating: 2, in: catalog)
+        model.resetSavedFiles(in: catalog)
+        _ = await recorder.waitForSnapshotCount(1)
+
+        #expect(model.countSelectedFiles(in: catalog) == 0)
+        #expect(model.savedFiles.first?.filerecords == [])
+    }
+
+    @Test
+    func `manual winner override requires exact membership`() {
+        let model = CullingModel(saveDelayNanoseconds: 0, saveHandler: { _ in })
+        let catalog = URL(fileURLWithPath: "/tmp/catalog-\(UUID().uuidString)")
+        model.upsertBurstWinnerOverride(
+            BurstWinnerOverride(
+                winnerFileName: "A.ARW",
+                memberFileNames: ["A.ARW", "B.ARW", "C.ARW"],
+            ),
+            in: catalog,
+        )
+
+        let matching = [
+            makeCullingTestFile("C.ARW"),
+            makeCullingTestFile("A.ARW"),
+            makeCullingTestFile("B.ARW")
+        ]
+        let changed = [
+            makeCullingTestFile("A.ARW"),
+            makeCullingTestFile("X.ARW"),
+            makeCullingTestFile("Y.ARW")
+        ]
+
+        #expect(model.overrideWinner(for: matching, in: catalog)?.winnerFileName == "A.ARW")
+        #expect(model.overrideWinner(for: changed, in: catalog) == nil)
+    }
+
+    @Test
+    func `upsert preserves same winner for different member sets`() {
+        let model = CullingModel(saveDelayNanoseconds: 0, saveHandler: { _ in })
+        let catalog = URL(fileURLWithPath: "/tmp/catalog-\(UUID().uuidString)")
+
+        model.upsertBurstWinnerOverride(
+            BurstWinnerOverride(winnerFileName: "A.ARW", memberFileNames: ["A.ARW", "B.ARW"]),
+            in: catalog,
+        )
+        model.upsertBurstWinnerOverride(
+            BurstWinnerOverride(winnerFileName: "A.ARW", memberFileNames: ["A.ARW", "C.ARW"]),
+            in: catalog,
+        )
+
+        #expect(model.burstWinnerOverrides(in: catalog).count == 2)
+        #expect(model.overrideWinner(
+            for: [makeCullingTestFile("A.ARW"), makeCullingTestFile("B.ARW")],
+            in: catalog,
+        )?.winnerFileName == "A.ARW")
+        #expect(model.overrideWinner(
+            for: [makeCullingTestFile("A.ARW"), makeCullingTestFile("C.ARW")],
+            in: catalog,
+        )?.winnerFileName == "A.ARW")
+    }
+
+    @Test
+    func `prune removes overrides with missing winner or member`() {
+        let model = CullingModel(saveDelayNanoseconds: 0, saveHandler: { _ in })
+        let catalog = URL(fileURLWithPath: "/tmp/catalog-\(UUID().uuidString)")
+
+        model.upsertBurstWinnerOverride(
+            BurstWinnerOverride(winnerFileName: "A.ARW", memberFileNames: ["A.ARW", "B.ARW"]),
+            in: catalog,
+        )
+        model.upsertBurstWinnerOverride(
+            BurstWinnerOverride(winnerFileName: "C.ARW", memberFileNames: ["C.ARW", "D.ARW"]),
+            in: catalog,
+        )
+
+        model.pruneStaleBurstOverrides(validFileNames: ["A.ARW"], in: catalog)
+
+        #expect(model.burstWinnerOverrides(in: catalog).isEmpty)
+    }
+
+    @Test
+    func `FileRecord equality includes persisted sharpness metadata`() {
+        let lhs = FileRecord(
+            fileName: "one.ARW",
+            dateTagged: "now",
+            dateCopied: nil,
+            rating: 3,
+            sharpnessScore: 0.5,
+            saliencySubject: "bird",
+            sharpnessScoringSignature: nil,
+            sharpnessFileSize: 10,
+            sharpnessModificationDate: Date(timeIntervalSince1970: 1),
+        )
+        let rhs = FileRecord(
+            fileName: "one.ARW",
+            dateTagged: "now",
+            dateCopied: nil,
+            rating: 3,
+            sharpnessScore: 0.9,
+            saliencySubject: "bird",
+            sharpnessScoringSignature: nil,
+            sharpnessFileSize: 10,
+            sharpnessModificationDate: Date(timeIntervalSince1970: 1),
+        )
+
+        #expect(lhs != rhs)
+    }
+
+    @Test
+    func `updateRating recreates records after reset leaves empty catalog`() async {
+        let recorder = SavedFilesRecorder()
+        let model = CullingModel(saveDelayNanoseconds: 0) { savedFiles in
+            await recorder.record(savedFiles)
+        }
+        let catalog = URL(fileURLWithPath: "/tmp/catalog-\(UUID().uuidString)")
+
+        model.updateRating(fileName: "one.ARW", rating: 3, in: catalog)
+        model.resetSavedFiles(in: catalog)
+        model.updateRating(fileName: "two.ARW", rating: 5, in: catalog)
+        _ = await recorder.waitForSnapshotCount(1)
+
+        let records = model.savedFiles.first?.filerecords ?? []
+        #expect(records.count == 1)
+        #expect(records.first?.fileName == "two.ARW")
+        #expect(records.first?.rating == 5)
+    }
+}
+
+@MainActor
+struct SavedFilesJSONTests {
+    @Test
+    func `write creates Application Support directory and saved files JSON`() async throws {
+        let fileURL = makeIsolatedSavedFilesURL()
+        let root = savedFilesTestRoot(for: fileURL)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let catalog = URL(fileURLWithPath: "/tmp/catalog-\(UUID().uuidString)")
+        let savedFiles = [
+            SavedFiles(
+                catalog: catalog,
+                dateStart: "19 May 2026 12:00",
+                filerecord: FileRecord(fileName: "one.ARW", dateTagged: nil, dateCopied: nil, rating: 4),
+            )
+        ]
+
+        await WriteSavedFilesJSON.write(savedFiles, to: fileURL)
+
+        #expect(FileManager.default.fileExists(atPath: fileURL.path))
+        let data = try Data(contentsOf: fileURL)
+        let decoded = try JSONDecoder().decode([DecodeSavedFiles].self, from: data)
+        #expect(decoded.first?.catalog == catalog)
+        #expect(decoded.first?.filerecords?.first?.fileName == "one.ARW")
+        #expect(decoded.first?.filerecords?.first?.rating == 4)
+    }
+
+    @Test
+    func `older saved files JSON decodes`() throws {
+        let json = """
+        [{
+          "catalog": "file:///tmp/catalog/",
+          "dateStart": "19 May 2026 12:00",
+          "filerecords": [{
+            "fileName": "one.ARW",
+            "rating": 3
+          }]
+        }]
+        """
+        let decoded = try JSONDecoder().decode([DecodeSavedFiles].self, from: Data(json.utf8))
+        let saved = try #require(decoded.first.map(SavedFiles.init))
+
+        #expect(saved.catalog == URL(string: "file:///tmp/catalog/"))
+        #expect(saved.filerecords?.first?.fileName == "one.ARW")
+    }
+
+    @Test
+    func `read loads saved files from Application Support URL`() throws {
+        let fileURL = makeIsolatedSavedFilesURL()
+        let root = savedFilesTestRoot(for: fileURL)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let catalog = URL(fileURLWithPath: "/tmp/catalog-\(UUID().uuidString)")
+        let savedFiles = [
+            SavedFiles(
+                catalog: catalog,
+                dateStart: "19 May 2026 12:00",
+                filerecord: FileRecord(fileName: "two.ARW", dateTagged: nil, dateCopied: nil, rating: 5),
+            )
+        ]
+        try FileManager.default.createDirectory(
+            at: fileURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true,
+        )
+        let data = try JSONEncoder().encode(savedFiles)
+        try data.write(to: fileURL)
+
+        let decoded = try #require(ReadSavedFilesJSON(savedFilesURL: fileURL).readjsonfilesavedfiles())
+
+        #expect(decoded.first?.catalog == catalog)
+        #expect(decoded.first?.filerecords?.first?.fileName == "two.ARW")
+        #expect(decoded.first?.filerecords?.first?.rating == 5)
+    }
+
+    @Test
+    func `read ignores old Documents file when Application Support file exists`() throws {
+        let newFileURL = makeIsolatedSavedFilesURL()
+        let root = savedFilesTestRoot(for: newFileURL)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let oldFileURL = root
+            .appendingPathComponent("Documents", isDirectory: true)
+            .appendingPathComponent("savedfiles.json")
+        let newCatalog = URL(fileURLWithPath: "/tmp/new-catalog-\(UUID().uuidString)")
+        let oldCatalog = URL(fileURLWithPath: "/tmp/old-catalog-\(UUID().uuidString)")
+        let newSavedFiles = [
+            SavedFiles(
+                catalog: newCatalog,
+                dateStart: "19 May 2026 12:00",
+                filerecord: FileRecord(fileName: "new.ARW", dateTagged: nil, dateCopied: nil, rating: 5),
+            )
+        ]
+        let oldSavedFiles = [
+            SavedFiles(
+                catalog: oldCatalog,
+                dateStart: "18 May 2026 12:00",
+                filerecord: FileRecord(fileName: "old.ARW", dateTagged: nil, dateCopied: nil, rating: 1),
+            )
+        ]
+        try FileManager.default.createDirectory(
+            at: newFileURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true,
+        )
+        try FileManager.default.createDirectory(
+            at: oldFileURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true,
+        )
+        try JSONEncoder().encode(newSavedFiles).write(to: newFileURL)
+        try JSONEncoder().encode(oldSavedFiles).write(to: oldFileURL)
+
+        let decoded = try #require(ReadSavedFilesJSON(savedFilesURL: newFileURL).readjsonfilesavedfiles())
+
+        #expect(decoded.first?.catalog == newCatalog)
+        #expect(decoded.first?.filerecords?.first?.fileName == "new.ARW")
+        #expect(decoded.first?.filerecords?.first?.rating == 5)
+    }
+
+    private func savedFilesTestRoot(for fileURL: URL) -> URL {
+        fileURL
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+    }
+}
+
+@MainActor
+struct RawCullViewModelCullingTests {
+    @Test
+    func `rebuildRatingCache populates ratings and tagged filenames for selected catalog`() {
+        let viewModel = RawCullViewModel()
+        let catalog = ARWSourceCatalog(name: "Catalog", url: URL(fileURLWithPath: "/tmp/catalog-\(UUID().uuidString)"))
+        viewModel.selectedSource = catalog
+        viewModel.cullingModel = CullingModel(saveDelayNanoseconds: 0, saveHandler: { _ in })
+        viewModel.cullingModel.updateRatings(fileNames: ["one.ARW", "two.ARW"], rating: 2, in: catalog.url)
+
+        viewModel.rebuildRatingCache()
+
+        #expect(viewModel.ratingCache == ["one.ARW": 2, "two.ARW": 2])
+        #expect(viewModel.taggedNamesCache == ["one.ARW", "two.ARW"])
+    }
+
+    @Test
+    func `passesRatingFilter distinguishes rejected keepers and star ratings`() {
+        let viewModel = RawCullViewModel()
+        let rejected = makeCullingTestFile("rejected.ARW")
+        let keeper = makeCullingTestFile("keeper.ARW")
+        let star = makeCullingTestFile("star.ARW")
+        viewModel.ratingCache = [
+            rejected.name: -1,
+            star.name: 4
+        ]
+
+        viewModel.ratingFilter = .rejected
+        #expect(viewModel.passesRatingFilter(rejected))
+        #expect(!viewModel.passesRatingFilter(keeper))
+
+        viewModel.ratingFilter = .keepers
+        #expect(viewModel.passesRatingFilter(keeper))
+        #expect(!viewModel.passesRatingFilter(star))
+
+        viewModel.ratingFilter = .stars(4)
+        #expect(viewModel.passesRatingFilter(star))
+        #expect(!viewModel.passesRatingFilter(rejected))
+    }
+
+    @Test
+    func `extractRatedfilenames returns files at or above requested rating`() {
+        let viewModel = RawCullViewModel()
+        let files = [
+            makeCullingTestFile("two.ARW"),
+            makeCullingTestFile("four.ARW"),
+            makeCullingTestFile("unrated.ARW")
+        ]
+        viewModel.filteredFiles = files
+        viewModel.ratingCache = [
+            "two.ARW": 2,
+            "four.ARW": 4
+        ]
+
+        #expect(viewModel.extractRatedfilenames(3) == ["four.ARW"])
+    }
+
+    @Test
+    func `bulk updateRating updates culling model and cache`() {
+        let viewModel = RawCullViewModel()
+        let catalog = ARWSourceCatalog(name: "Catalog", url: URL(fileURLWithPath: "/tmp/catalog-\(UUID().uuidString)"))
+        let files = [makeCullingTestFile("one.ARW"), makeCullingTestFile("two.ARW")]
+        viewModel.selectedSource = catalog
+        viewModel.cullingModel = CullingModel(saveDelayNanoseconds: 0, saveHandler: { _ in })
+
+        viewModel.updateRating(for: files, rating: 5)
+
+        #expect(viewModel.ratingCache == ["one.ARW": 5, "two.ARW": 5])
+    }
+
+    @Test
+    func `clearCurrentCatalogCullingState allows rating same catalog again`() {
+        let viewModel = RawCullViewModel()
+        let catalog = ARWSourceCatalog(name: "Catalog", url: URL(fileURLWithPath: "/tmp/catalog-\(UUID().uuidString)"))
+        let first = makeCullingTestFile("one.ARW")
+        let second = makeCullingTestFile("two.ARW")
+        viewModel.selectedSource = catalog
+        viewModel.cullingModel = CullingModel(saveDelayNanoseconds: 0, saveHandler: { _ in })
+
+        viewModel.updateRating(for: first, rating: 3)
+        viewModel.clearCurrentCatalogCullingState()
+        viewModel.updateRating(for: second, rating: 5)
+
+        let records = viewModel.cullingModel.savedFiles.first?.filerecords ?? []
+        #expect(records.count == 1)
+        #expect(records.first?.fileName == "two.ARW")
+        #expect(records.first?.rating == 5)
+        #expect(viewModel.ratingCache == ["two.ARW": 5])
+        #expect(viewModel.taggedNamesCache == ["two.ARW"])
+    }
+
+    @Test
+    func `burst signatures are order independent and catalog relative`() throws {
+        let catalog = URL(fileURLWithPath: "/tmp/catalog-\(UUID().uuidString)")
+        let first = FileItem(
+            url: catalog.appendingPathComponent("day1/duplicate.ARW"),
+            name: "duplicate.ARW",
+            size: 1,
+            dateModified: Date(timeIntervalSince1970: 0),
+            exifData: nil,
+            afFocusNormalized: nil,
+        )
+        let second = FileItem(
+            url: catalog.appendingPathComponent("day2/duplicate.ARW"),
+            name: "duplicate.ARW",
+            size: 1,
+            dateModified: Date(timeIntervalSince1970: 0),
+            exifData: nil,
+            afFocusNormalized: nil,
+        )
+
+        let lhs = try #require(BurstGroupSignature(files: [first, second], catalog: catalog))
+        let rhs = try #require(BurstGroupSignature(files: [second, first], catalog: catalog))
+
+        #expect(lhs == rhs)
+        #expect(lhs.memberKeys == ["day1/duplicate.ARW", "day2/duplicate.ARW"])
+    }
+
+    @Test
+    func `cached review state restores by signature after file id remap`() throws {
+        let viewModel = RawCullViewModel()
+        let catalog = ARWSourceCatalog(name: "Catalog", url: URL(fileURLWithPath: "/tmp/catalog-\(UUID().uuidString)"))
+        let oldA = makeCullingTestFile("A.ARW")
+        let oldB = makeCullingTestFile("B.ARW")
+        let currentA = makeCullingTestFile("A.ARW")
+        let currentB = makeCullingTestFile("B.ARW")
+        let signature = try #require(BurstGroupSignature(files: [oldA, oldB], catalog: catalog.url))
+
+        viewModel.selectedSource = catalog
+        viewModel.files = [currentA, currentB]
+        viewModel.similarityModel.burstGroups = [BurstGroup(id: 9, fileIDs: [currentA.id, currentB.id])]
+
+        let snapshot = makeBurstSnapshot(
+            catalog: catalog.url,
+            files: [oldA, oldB],
+            groups: [BurstGroup(id: 1, fileIDs: [oldA.id, oldB.id])],
+            results: [],
+            reviewStateSnapshots: [BurstReviewStateSnapshot(signature: signature, state: .decisionApplied)],
+        )
+
+        let states = viewModel.cachedReviewStates(from: snapshot)
+
+        #expect(states == [9: .decisionApplied])
+    }
+
+    @Test
+    func `cached review state ignores matching group id with changed membership`() throws {
+        let viewModel = RawCullViewModel()
+        let catalog = ARWSourceCatalog(name: "Catalog", url: URL(fileURLWithPath: "/tmp/catalog-\(UUID().uuidString)"))
+        let oldA = makeCullingTestFile("A.ARW")
+        let oldB = makeCullingTestFile("B.ARW")
+        let currentA = makeCullingTestFile("A.ARW")
+        let currentC = makeCullingTestFile("C.ARW")
+        let signature = try #require(BurstGroupSignature(files: [oldA, oldB], catalog: catalog.url))
+
+        viewModel.selectedSource = catalog
+        viewModel.files = [currentA, currentC]
+        viewModel.similarityModel.burstGroups = [BurstGroup(id: 1, fileIDs: [currentA.id, currentC.id])]
+
+        let snapshot = makeBurstSnapshot(
+            catalog: catalog.url,
+            files: [oldA, oldB],
+            groups: [BurstGroup(id: 1, fileIDs: [oldA.id, oldB.id])],
+            results: [],
+            reviewStateSnapshots: [BurstReviewStateSnapshot(signature: signature, state: .decisionApplied)],
+        )
+
+        let states = viewModel.cachedReviewStates(from: snapshot)
+
+        #expect(states.isEmpty)
+    }
+}
+
+@MainActor
+private func makeBurstSnapshot(
+    catalog: URL,
+    files: [FileItem],
+    groups: [BurstGroup],
+    results: [BurstAnalysisResult],
+    reviewStateSnapshots: [BurstReviewStateSnapshot],
+) -> BurstAnalysisCacheSnapshot {
+    BurstAnalysisCacheSnapshot(
+        schemaVersion: BurstAnalysisCache.schemaVersion,
+        algorithmVersion: BurstGroupingConfig.algorithmVersion,
+        catalogPath: catalog.path,
+        thumbnailMaxPixelSize: 512,
+        sharpnessSignature: BurstSharpnessSignature(
+            photoType: .auto,
+            scoringQuality: .fast,
+            thumbnailMaxPixelSize: 512,
+            config: FocusDetectorConfig(),
+        ),
+        files: files.map {
+            BurstAnalysisCacheFile(
+                id: $0.id,
+                path: $0.url.path,
+                size: $0.size,
+                modificationDate: $0.dateModified,
+            )
+        },
+        embeddings: [:],
+        sharpnessScores: [:],
+        saliencyInfo: [:],
+        groups: groups,
+        boundaryEvidence: [],
+        results: results,
+        reviewStateSnapshots: reviewStateSnapshots,
+    )
+}
