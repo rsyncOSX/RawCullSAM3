@@ -59,7 +59,7 @@ enum ZoomPreviewHandler {
 
                 await MainActor.run {
                     if let displayImage {
-                        viewModel.zoomOverlayNSImage = NSImage(cgImage: displayImage, size: .zero)
+                        viewModel.zoomOverlayCGImage = displayImage
                     }
                     viewModel.zoomOverlayVisible = true
                 }

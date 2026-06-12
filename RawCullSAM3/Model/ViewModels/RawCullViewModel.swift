@@ -7,6 +7,7 @@ import RawCullCore
 enum AlertType {
     case extractJPGs
     case createJPGDiskCache
+    case createSAM3Masks
     case clearRatedFiles
 }
 
@@ -171,10 +172,14 @@ final class RawCullViewModel {
     var currentScanAndCreateThumbnailsActor: ScanAndCreateThumbnails?
     var currentExtractAndSaveJPGsActor: ExtractAndSaveJPGs?
     var currentScanAndExtractJPGsActor: ScanAndExtractJPGs?
+    var isCreatingSAM3Masks = false
+    var sam3MaskCreationProgress: SubjectMaskPrefetchProgress?
     var preloadTask: Task<Void, Never>?
     @ObservationIgnored var jpgCacheWarmTask: Task<Void, Never>?
     @ObservationIgnored var catalogLoadTask: Task<Void, Never>?
     @ObservationIgnored var activeCatalogLoadURL: URL?
+    @ObservationIgnored var sam3MaskCreationTask: Task<Void, Never>?
+    @ObservationIgnored var sam3SubjectSegmentationActor = SubjectSegmentationActor()
     /// In-flight ARW→JPEG extraction or thumbnail load task for the zoom window.
     /// Cancelled when the zoom window closes or a new file is opened for zoom.
     var zoomExtractionTask: Task<Void, Never>?
@@ -187,6 +192,7 @@ final class RawCullViewModel {
         switch alertType {
         case .extractJPGs: "Extract JPGs"
         case .createJPGDiskCache: "Create JPG Disk Cache"
+        case .createSAM3Masks: "Create SAM3 Masks"
         case .clearRatedFiles: "Clear Rated Images"
         case .none: ""
         }
@@ -198,6 +204,9 @@ final class RawCullViewModel {
 
         case .createJPGDiskCache:
             "RawCull will create missing extracted JPG preview cache images for \(files.count) RAW files in this catalog. Existing cached images will be skipped."
+
+        case .createSAM3Masks:
+            "RawCull will create missing SAM3 subject masks for \(sam3MaskCreationCandidateFiles.count) currently filtered files. Existing cached masks will be skipped."
 
         case .clearRatedFiles: "Are you sure you want to clear all rated images?"
 

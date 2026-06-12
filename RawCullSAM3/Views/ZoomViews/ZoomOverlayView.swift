@@ -316,10 +316,6 @@ struct ZoomOverlayView: View {
             rawMessageTask = nil
         }
         .onChange(of: sourceSelection.selected) { _, newSource in
-            if newSource != .embeddedJPG {
-                showSubjectMask = false
-                cancelSubjectSegmentation(clearMask: false)
-            }
             reload()
             loadCachedSubjectMask()
         }

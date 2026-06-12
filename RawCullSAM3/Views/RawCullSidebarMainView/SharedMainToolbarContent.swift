@@ -55,13 +55,22 @@ struct SharedMainToolbarContent: ToolbarContent {
             }
 
             ToolbarItem(placement: .status) {
+                Button(action: toggleSAM3MaskCreation) {
+                    Label(sam3ToolbarLabel, systemImage: viewModel.isCreatingSAM3Masks ? "xmark.circle" : "sparkles.rectangle.stack")
+                }
+                .disabled(sam3ToolbarIsDisabled)
+                .help(sam3ToolbarHelp)
+            }
+
+            ToolbarItem(placement: .status) {
                 Button(action: selectReviewQueueMode) {
                     Label("Review", systemImage: "tray.full")
                 }
-                .help("Show burst groups that need review")
+                .help(burstUnavailableHelp ?? "Show burst groups that need review")
                 .disabled(viewModel.selectedSource == nil ||
                     viewModel.burstReviewQueueCounts.needsReview == 0 ||
-                    viewModel.creatingthumbnails)
+                    viewModel.creatingthumbnails ||
+                    viewModel.isCreatingSAM3Masks)
             }
 
             ToolbarItem(placement: .status) {
@@ -103,11 +112,12 @@ struct SharedMainToolbarContent: ToolbarContent {
             } label: {
                 Label("Similarity", systemImage: "photo.stack")
             }
-            .help("Similarity & burst grouping grid")
+            .help(burstUnavailableHelp ?? "Similarity & burst grouping grid")
             .disabled(viewModel.selectedSource == nil ||
                 viewModel.filteredFiles.isEmpty ||
                 viewModel.mainViewMode == .similarityGrid ||
-                viewModel.creatingthumbnails)
+                viewModel.creatingthumbnails ||
+                viewModel.isCreatingSAM3Masks)
 
             Button {
                 selectGridMode()
@@ -142,6 +152,32 @@ struct SharedMainToolbarContent: ToolbarContent {
         }
     }
 
+    private var burstUnavailableHelp: String? {
+        viewModel.isCreatingSAM3Masks ? "Unavailable while SAM3 masks are being created" : nil
+    }
+
+    private var sam3ToolbarLabel: String {
+        if viewModel.isCreatingSAM3Masks {
+            guard let progress = viewModel.sam3MaskCreationProgress else { return "SAM3" }
+            return "SAM3 \(progress.completed)/\(progress.total)"
+        }
+        return "SAM3"
+    }
+
+    private var sam3ToolbarHelp: String {
+        if viewModel.isCreatingSAM3Masks {
+            return "Cancel SAM3 mask creation"
+        }
+        return "Create SAM3 subject masks for the currently filtered files"
+    }
+
+    private var sam3ToolbarIsDisabled: Bool {
+        if viewModel.isCreatingSAM3Masks { return false }
+        return viewModel.selectedSource == nil ||
+            viewModel.sam3MaskCreationCandidateFiles.isEmpty ||
+            viewModel.creatingthumbnails
+    }
+
     private func openCopyView() {
         viewModel.sheetType = .copytasksview
         viewModel.showcopyARWFilesView = true
@@ -149,6 +185,14 @@ struct SharedMainToolbarContent: ToolbarContent {
 
     private func toggleshowsavedfiles() {
         viewModel.showSavedFiles.toggle()
+    }
+
+    private func toggleSAM3MaskCreation() {
+        if viewModel.isCreatingSAM3Masks {
+            viewModel.cancelSAM3MaskCreation()
+        } else {
+            viewModel.requestCreateSAM3MasksConfirmation()
+        }
     }
 
     private func selectGridMode() {

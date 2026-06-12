@@ -23,7 +23,10 @@ extension RawCullViewModel {
     /// score sharpness, index similarity, group bursts, rank candidates, and
     /// persist the analysis artifacts.
     func analyzeBursts() async {
-        guard let catalog = selectedSource?.url, !files.isEmpty else { return }
+        guard let catalog = selectedSource?.url,
+              !files.isEmpty,
+              !isCreatingSAM3Masks
+        else { return }
 
         burstAnalysisTask?.cancel()
         burstAnalysisTask = Task {}
@@ -76,7 +79,10 @@ extension RawCullViewModel {
     /// Clear loaded burst analysis artifacts, delete the saved burst cache for
     /// the current catalog, and run a fresh analysis pass.
     func reindexBurstAnalysis() async {
-        guard let catalog = selectedSource?.url, !files.isEmpty else { return }
+        guard let catalog = selectedSource?.url,
+              !files.isEmpty,
+              !isCreatingSAM3Masks
+        else { return }
 
         clearLoadedBurstAnalysisForReindex()
         await burstAnalysisCache.delete(catalog: catalog)
@@ -88,7 +94,9 @@ extension RawCullViewModel {
     /// Re-run burst clustering with the current sensitivity threshold.
     /// Requires embeddings to already be computed — no-ops otherwise.
     func reGroupBursts() async {
-        guard !similarityModel.embeddings.isEmpty else { return }
+        guard !similarityModel.embeddings.isEmpty,
+              !isCreatingSAM3Masks
+        else { return }
         let sorted = burstOrderedFiles
         guard !Task.isCancelled else { return }
         await similarityModel.groupBursts(files: sorted)
@@ -99,7 +107,9 @@ extension RawCullViewModel {
 
     /// Rate the recommended frame in `groupFiles` at ★★★ and reject all others.
     func keepBestInGroup(from groupFiles: [FileItem]) {
-        guard !groupFiles.isEmpty else { return }
+        guard !groupFiles.isEmpty,
+              !isCreatingSAM3Masks
+        else { return }
         let groupID = groupID(for: groupFiles)
         guard canApplyOneClickCulling(groupID: groupID) else { return }
         let best = manualOverrideWinner(in: groupFiles)?.file
@@ -118,6 +128,7 @@ extension RawCullViewModel {
 
     func setManualBurstWinner(_ winner: FileItem, in groupFiles: [FileItem]) {
         guard let selectedSource,
+              !isCreatingSAM3Masks,
               groupFiles.contains(where: { $0.id == winner.id })
         else { return }
 
@@ -132,7 +143,9 @@ extension RawCullViewModel {
 
     /// Rate the recommended frame at ★★★, second best at ★★, and reject others.
     func keepTopTwoInGroup(from groupFiles: [FileItem]) {
-        guard !groupFiles.isEmpty else { return }
+        guard !groupFiles.isEmpty,
+              !isCreatingSAM3Masks
+        else { return }
         let groupID = groupID(for: groupFiles)
         guard canApplyOneClickCulling(groupID: groupID) else { return }
         let result = burstAnalysisResults[groupID]
@@ -156,7 +169,9 @@ extension RawCullViewModel {
     }
 
     func compareBurstGroup(_ groupFiles: [FileItem]) {
-        guard !groupFiles.isEmpty else { return }
+        guard !groupFiles.isEmpty,
+              !isCreatingSAM3Masks
+        else { return }
         let groupID = groupID(for: groupFiles)
         activeBurstComparisonGroupID = groupID
         let rankedIDs = burstAnalysisResults[groupID]?.candidates.map(\.fileID) ?? groupFiles.map(\.id)
@@ -200,14 +215,17 @@ extension RawCullViewModel {
     }
 
     func markBurstGroupNeedsReview(groupID: Int) {
+        guard !isCreatingSAM3Masks else { return }
         setBurstReviewState(.needsReview, groupID: groupID)
     }
 
     func markBurstGroupReviewed(groupID: Int) {
+        guard !isCreatingSAM3Masks else { return }
         setBurstReviewState(.reviewed, groupID: groupID)
     }
 
     func deferBurstGroup(groupID: Int) {
+        guard !isCreatingSAM3Masks else { return }
         setBurstReviewState(.deferred, groupID: groupID)
     }
 

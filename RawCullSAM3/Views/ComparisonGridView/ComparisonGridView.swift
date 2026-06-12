@@ -88,6 +88,7 @@ struct ComparisonGridView: View {
                             canApplyOneClickCulling: canApplyOneClickCulling,
                             onKeepBest: { viewModel.keepBestInGroup(from: allComparisonFiles) },
                             onKeepTopTwo: { viewModel.keepTopTwoInGroup(from: allComparisonFiles) },
+                            burstActionsUnavailable: viewModel.isCreatingSAM3Masks,
                             finalistFocusActive: finalistFocusActive,
                             onInspectFinalists: inspectFinalists,
                             onShowAll: showAllCandidates,
@@ -316,6 +317,7 @@ struct ComparisonGridView: View {
 
     private func applyBurstKeepBest() -> KeyPress.Result {
         guard viewModel.activeBurstComparisonGroupID != nil,
+              !viewModel.isCreatingSAM3Masks,
               canApplyOneClickCulling,
               !allComparisonFiles.isEmpty
         else { return .ignored }
@@ -465,6 +467,7 @@ private struct BurstComparisonEvidenceView: View {
     let canApplyOneClickCulling: Bool
     let onKeepBest: () -> Void
     let onKeepTopTwo: () -> Void
+    let burstActionsUnavailable: Bool
     let finalistFocusActive: Bool
     let onInspectFinalists: () -> Void
     let onShowAll: () -> Void
@@ -536,13 +539,17 @@ private struct BurstComparisonEvidenceView: View {
                     onSetManualWinner(selectedFile)
                 }
             }
-            .disabled(!selectedFileIsInResult)
-            .help(selectedFileIsInResult ? "Save the selected frame as the manual burst winner" : "Select a frame in this burst")
+            .disabled(!selectedFileIsInResult || burstActionsUnavailable)
+            .help(burstActionHelp(selectedFileIsInResult ? "Save the selected frame as the manual burst winner" : "Select a frame in this burst"))
             if canApplyOneClickCulling {
                 Button("Keep Best", action: onKeepBest)
                     .buttonStyle(.borderedProminent)
                     .tint(.green)
+                    .disabled(burstActionsUnavailable)
+                    .help(burstActionHelp("Rate best frame and reject the others"))
                 Button("Keep Top 2", action: onKeepTopTwo)
+                    .disabled(burstActionsUnavailable)
+                    .help(burstActionHelp("Rate the top two frames and reject the others"))
             }
         }
         .controlSize(.mini)
@@ -559,5 +566,9 @@ private struct BurstComparisonEvidenceView: View {
     private var selectedFileIsInResult: Bool {
         guard let selectedFile else { return false }
         return result.fileIDs.contains(selectedFile.id)
+    }
+
+    private func burstActionHelp(_ fallback: String) -> String {
+        burstActionsUnavailable ? "Unavailable while SAM3 masks are being created" : fallback
     }
 }

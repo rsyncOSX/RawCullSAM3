@@ -3,9 +3,16 @@
 //  RawCull
 //
 
+import CoreGraphics
 import OSLog
 
 extension RawCullViewModel {
+    var sam3MaskCreationCandidateFiles: [FileItem] {
+        let candidates = filteredFiles.filter { passesRatingFilter($0) }
+        guard !sharpnessModel.sortBySharpness else { return candidates }
+        return candidates.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+    }
+
     func fileHandler(_ update: Int) {
         progress = Double(update)
     }
@@ -64,6 +71,72 @@ extension RawCullViewModel {
         }
     }
 
+    func requestCreateSAM3MasksConfirmation() {
+        guard !isCreatingSAM3Masks,
+              !sam3MaskCreationCandidateFiles.isEmpty
+        else { return }
+        alertType = .createSAM3Masks
+        showingAlert = true
+    }
+
+    func startSAM3MaskCreationForFilteredCatalog() {
+        startSAM3MaskCreationForFilteredCatalog(
+            actor: sam3SubjectSegmentationActor,
+            imageLoader: { file in
+                await ZoomPreviewHandler.loadExtractedJPGPreview(for: file.url)
+            },
+        )
+    }
+
+    func startSAM3MaskCreationForFilteredCatalog(
+        actor: SubjectSegmentationActor,
+        imageLoader: @escaping @Sendable (FileItem) async -> CGImage?,
+    ) {
+        guard !isCreatingSAM3Masks else { return }
+        let files = sam3MaskCreationCandidateFiles
+        guard !files.isEmpty else { return }
+
+        sam3MaskCreationTask?.cancel()
+        sam3MaskCreationProgress = SubjectMaskPrefetchProgress(
+            completed: 0,
+            total: files.count,
+            cached: 0,
+            generated: 0,
+            failed: 0,
+            currentFileID: files.first?.id,
+        )
+        isCreatingSAM3Masks = true
+
+        sam3MaskCreationTask = Task(priority: .background) {
+            do {
+                try await actor.prefetch(
+                    files: files,
+                    prompt: SAM3SubjectMaskCacheReader.prompt,
+                    imageLoader: imageLoader,
+                    progress: { progress in
+                        await MainActor.run {
+                            self.sam3MaskCreationProgress = progress
+                        }
+                    },
+                )
+            } catch {}
+
+            await MainActor.run {
+                self.sam3MaskCreationTask = nil
+                self.isCreatingSAM3Masks = false
+            }
+        }
+    }
+
+    func cancelSAM3MaskCreation(clearProgress: Bool = false) {
+        sam3MaskCreationTask?.cancel()
+        sam3MaskCreationTask = nil
+        isCreatingSAM3Masks = false
+        if clearProgress {
+            sam3MaskCreationProgress = nil
+        }
+    }
+
     func applyStoredScoringSettings() async {
         // Wait for the initial settings load to complete before reading.
         // Without this, we may race with the fire-and-forget Task in SettingsViewModel.init()
@@ -106,6 +179,8 @@ extension RawCullViewModel {
             Task { await actor.cancelExtraction() }
         }
         currentScanAndExtractJPGsActor = nil
+
+        cancelSAM3MaskCreation(clearProgress: true)
 
         creatingthumbnails = false
     }

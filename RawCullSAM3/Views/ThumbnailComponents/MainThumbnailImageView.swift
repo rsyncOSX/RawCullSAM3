@@ -50,9 +50,6 @@ struct MainThumbnailImageView: View {
     @State private var subjectMask: CGImage?
     @State private var showSubjectMask = false
     @State private var subjectSegmentationState: SubjectSegmentationControlState = .idle
-    @State private var subjectSegmentationActor = SubjectSegmentationActor()
-    @State private var subjectPrefetchTask: Task<Void, Never>?
-    @State private var subjectPrefetchProgress: SubjectMaskPrefetchProgress?
     @State private var subjectMaskLoadTask: Task<Void, Never>?
 
     // Focus mask state
@@ -143,14 +140,6 @@ struct MainThumbnailImageView: View {
                                 // File metadata at the top where it belongs
                                 if let file {
                                     HStack(alignment: .top, spacing: 8) {
-                                        SubjectMaskScanButton(
-                                            isRunning: subjectPrefetchTask != nil,
-                                            progress: subjectPrefetchProgress,
-                                            density: .compact,
-                                            onStart: startSubjectMaskScan,
-                                            onCancel: { cancelSubjectMaskScan(clearProgress: false) },
-                                        )
-
                                         CurrentRatingBadgeView(
                                             rating: ratingDisplay(for: file),
                                             density: .compact,
@@ -281,10 +270,14 @@ struct MainThumbnailImageView: View {
             rawMessageTask = nil
             subjectMaskLoadTask?.cancel()
             subjectMaskLoadTask = nil
-            cancelSubjectMaskScan(clearProgress: true)
             subjectMask = nil
             showSubjectMask = false
             isLoadingSource = false
+        }
+        .onChange(of: viewModel.isCreatingSAM3Masks) { oldValue, newValue in
+            if oldValue, !newValue {
+                reloadCachedSubjectMask()
+            }
         }
     }
 
@@ -443,19 +436,6 @@ struct MainThumbnailImageView: View {
 
     // MARK: - Subject Mask
 
-    private var subjectScanFiles: [FileItem] {
-        let filtered = viewModel.filteredFiles.filter { viewModel.passesRatingFilter($0) }
-        if !filtered.isEmpty {
-            return viewModel.sharpnessModel.sortBySharpness
-                ? filtered
-                : filtered.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
-        }
-        if let file {
-            return [file]
-        }
-        return []
-    }
-
     private func toggleSubjectMask() {
         guard subjectMask != nil else {
             showSubjectMask = false
@@ -483,63 +463,12 @@ struct MainThumbnailImageView: View {
         }
     }
 
-    private func startSubjectMaskScan() {
-        let files = subjectScanFiles
-        guard !files.isEmpty else { return }
-
-        subjectPrefetchTask?.cancel()
-        subjectPrefetchProgress = SubjectMaskPrefetchProgress(
-            completed: 0,
-            total: files.count,
-            cached: 0,
-            generated: 0,
-            failed: 0,
-            currentFileID: files.first?.id,
-        )
-
-        let actor = subjectSegmentationActor
-        subjectPrefetchTask = Task {
-            do {
-                try await actor.prefetch(
-                    files: files,
-                    prompt: SAM3SubjectMaskCacheReader.prompt,
-                    imageLoader: { file in
-                        await ZoomPreviewHandler.loadExtractedJPGPreview(for: file.url)
-                    },
-                    progress: { progress in
-                        await MainActor.run {
-                            subjectPrefetchProgress = progress
-                        }
-                    },
-                )
-                guard !Task.isCancelled else { return }
-                await MainActor.run {
-                    subjectPrefetchTask = nil
-                    reloadCachedSubjectMask()
-                }
-            } catch {
-                await MainActor.run {
-                    subjectPrefetchTask = nil
-                }
-            }
-        }
-    }
-
-    private func cancelSubjectMaskScan(clearProgress: Bool) {
-        subjectPrefetchTask?.cancel()
-        subjectPrefetchTask = nil
-        if clearProgress {
-            subjectPrefetchProgress = nil
-        }
-    }
-
     private func resetSubjectMaskState() {
         subjectMaskLoadTask?.cancel()
         subjectMaskLoadTask = nil
         subjectMask = nil
         showSubjectMask = false
         subjectSegmentationState = .idle
-        cancelSubjectMaskScan(clearProgress: true)
     }
 
     // MARK: - Regenerate Mask

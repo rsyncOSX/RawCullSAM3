@@ -442,3 +442,111 @@ struct SAM3SubjectMaskCacheReaderTests {
         #expect(loaded == nil)
     }
 }
+
+@MainActor
+struct SAM3MaskCreationViewModelTests {
+    @Test
+    func `candidate files use current rating filter`() async throws {
+        let root = try makeSAM3CacheTestRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let keepSource = try makeSAM3CacheSource(in: root, name: "keep.ARW")
+        let rejectSource = try makeSAM3CacheSource(in: root, name: "reject.ARW")
+        let keep = makeSAM3TestFileItem(url: keepSource)
+        let reject = makeSAM3TestFileItem(url: rejectSource)
+        let viewModel = RawCullViewModel()
+
+        viewModel.selectedSource = ARWSourceCatalog(name: "SAM3 Test", url: root)
+        viewModel.cullingModel = CullingModel(saveDelayNanoseconds: 0, saveHandler: { _ in })
+        viewModel.filteredFiles = [reject, keep]
+        viewModel.files = [reject, keep]
+        viewModel.updateRating(for: keep, rating: 3)
+        viewModel.updateRating(for: reject, rating: -1)
+        viewModel.ratingFilter = .stars(3)
+
+        #expect(viewModel.sam3MaskCreationCandidateFiles.map(\.id) == [keep.id])
+    }
+
+    @Test
+    func `SAM3 mask creation updates progress and clears running state on completion`() async throws {
+        let root = try makeSAM3CacheTestRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let source = try makeSAM3CacheSource(in: root)
+        let file = makeSAM3TestFileItem(url: source)
+        let diskCache = SAM3MaskDiskCache(cacheDirectory: root.appendingPathComponent("Masks", isDirectory: true))
+        let provider = FakeSubjectSegmentationProvider()
+        let actor = SubjectSegmentationActor(
+            provider: provider,
+            cache: SubjectMaskCache(),
+            diskCache: diskCache,
+            maxSide: SAM3SubjectMaskCacheReader.inputMaxSide,
+        )
+        let image = try makeSAM3CacheTestCGImage(width: 18, height: 12)
+        let viewModel = RawCullViewModel()
+        viewModel.filteredFiles = [file]
+
+        viewModel.startSAM3MaskCreationForFilteredCatalog(
+            actor: actor,
+            imageLoader: { _ in image },
+        )
+
+        try await waitUntil(timeoutSeconds: 2) {
+            !viewModel.isCreatingSAM3Masks
+        }
+
+        #expect(viewModel.sam3MaskCreationProgress?.completed == 1)
+        #expect(viewModel.sam3MaskCreationProgress?.generated == 1)
+        #expect(await provider.callCount() == 1)
+        let cached = await diskCache.load(
+            for: source,
+            fileID: file.id,
+            prompt: .subject,
+            modelVersion: provider.modelVersion,
+            inputMaxSide: SAM3SubjectMaskCacheReader.inputMaxSide,
+        )
+        #expect(cached != nil)
+    }
+
+    @Test
+    func `cancelling SAM3 mask creation clears running state`() async throws {
+        let root = try makeSAM3CacheTestRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let source = try makeSAM3CacheSource(in: root)
+        let file = makeSAM3TestFileItem(url: source)
+        let actor = SubjectSegmentationActor(
+            provider: FakeSubjectSegmentationProvider(),
+            cache: SubjectMaskCache(),
+            diskCache: SAM3MaskDiskCache(cacheDirectory: root.appendingPathComponent("Masks", isDirectory: true)),
+            maxSide: SAM3SubjectMaskCacheReader.inputMaxSide,
+        )
+        let viewModel = RawCullViewModel()
+        viewModel.filteredFiles = [file]
+
+        viewModel.startSAM3MaskCreationForFilteredCatalog(
+            actor: actor,
+            imageLoader: { _ in
+                try? await Task.sleep(for: .seconds(1))
+                return nil
+            },
+        )
+        #expect(viewModel.isCreatingSAM3Masks)
+
+        viewModel.cancelSAM3MaskCreation(clearProgress: true)
+
+        #expect(!viewModel.isCreatingSAM3Masks)
+        #expect(viewModel.sam3MaskCreationProgress == nil)
+    }
+
+    private func waitUntil(
+        timeoutSeconds: Double,
+        condition: @escaping @MainActor () -> Bool,
+    ) async throws {
+        let deadline = Date().addingTimeInterval(timeoutSeconds)
+        while !condition() {
+            if Date() > deadline {
+                Issue.record("Timed out waiting for condition")
+                return
+            }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+    }
+}

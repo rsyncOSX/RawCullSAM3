@@ -36,9 +36,11 @@ struct SimilarityGridSelectionView: View {
         let isIndexing = viewModel.similarityModel.isIndexing
         let isGrouping = viewModel.similarityModel.isGrouping
         let burstAnalysisIsBusy = analyzeBurstsRequested || viewModel.burstAnalysisProgress.isRunning
+        let sam3MasksBusy = viewModel.isCreatingSAM3Masks
         let inBurstMode = viewModel.similarityModel.burstModeActive
-        let sharpnessControlsDisabled = viewModel.sharpnessModel.isScoring || isIndexing || isGrouping || burstAnalysisIsBusy
+        let sharpnessControlsDisabled = viewModel.sharpnessModel.isScoring || isIndexing || isGrouping || burstAnalysisIsBusy || sam3MasksBusy
         let reviewCounts = viewModel.burstReviewQueueCounts
+        let burstUnavailableHelp = "Unavailable while SAM3 masks are being created"
 
         if !inBurstMode {
             SharpnessIntentControlsView(
@@ -122,8 +124,10 @@ struct SimilarityGridSelectionView: View {
                         in: 0.05 ... 0.60,
                     )
                     .frame(width: 70)
-                    .help("Burst sensitivity — lower = tighter groups, higher = similar scenes grouped together")
+                    .disabled(sam3MasksBusy)
+                    .help(sam3MasksBusy ? burstUnavailableHelp : "Burst sensitivity — lower = tighter groups, higher = similar scenes grouped together")
                     .onChange(of: viewModel.similarityModel.burstSensitivity) { _, _ in
+                        guard !viewModel.isCreatingSAM3Masks else { return }
                         pendingRegroupTask?.cancel()
                         pendingRegroupTask = Task {
                             try? await Task.sleep(nanoseconds: 200_000_000)
@@ -153,6 +157,7 @@ struct SimilarityGridSelectionView: View {
                 .help("Return to flat grid view")
 
                 Button {
+                    guard !viewModel.isCreatingSAM3Masks else { return }
                     analyzeBurstsRequested = true
                     Task {
                         defer { analyzeBurstsRequested = false }
@@ -162,10 +167,11 @@ struct SimilarityGridSelectionView: View {
                     Label("Reanalyze Bursts", systemImage: "arrow.clockwise")
                 }
                 .font(.caption)
-                .disabled(isGrouping || burstAnalysisIsBusy || viewModel.files.isEmpty)
-                .help("Delete saved burst analysis for this catalog and recompute from scratch")
+                .disabled(isGrouping || burstAnalysisIsBusy || viewModel.files.isEmpty || sam3MasksBusy)
+                .help(sam3MasksBusy ? burstUnavailableHelp : "Delete saved burst analysis for this catalog and recompute from scratch")
             } else {
                 Button {
+                    guard !viewModel.isCreatingSAM3Masks else { return }
                     analyzeBurstsRequested = true
                     runWithAutoScoring {
                         defer { analyzeBurstsRequested = false }
@@ -181,8 +187,8 @@ struct SimilarityGridSelectionView: View {
                     }
                 }
                 .font(.caption)
-                .disabled(isGrouping || burstAnalysisIsBusy || viewModel.files.isEmpty)
-                .help("Group burst sequences and recommend best frames")
+                .disabled(isGrouping || burstAnalysisIsBusy || viewModel.files.isEmpty || sam3MasksBusy)
+                .help(sam3MasksBusy ? burstUnavailableHelp : "Group burst sequences and recommend best frames")
 
                 if reviewCounts.needsReview > 0 {
                     reviewQueueButton(
@@ -233,13 +239,15 @@ struct SimilarityGridSelectionView: View {
         help: String,
     ) -> some View {
         Button {
+            guard !viewModel.isCreatingSAM3Masks else { return }
             viewModel.similarityModel.burstModeActive = true
             viewModel.burstReviewQueueFilter = filter
         } label: {
             Label("\(count) \(title)", systemImage: systemImage)
         }
         .font(.caption)
-        .help(help)
+        .disabled(viewModel.isCreatingSAM3Masks)
+        .help(viewModel.isCreatingSAM3Masks ? "Unavailable while SAM3 masks are being created" : help)
     }
 
     /// Runs `action` after first computing sharpness scores when scores are missing.
@@ -248,6 +256,7 @@ struct SimilarityGridSelectionView: View {
     /// the prerequisite.
     private func runWithAutoScoring(_ action: @escaping @MainActor () async -> Void) {
         Task {
+            guard !viewModel.isCreatingSAM3Masks else { return }
             if viewModel.sharpnessModel.scores.isEmpty {
                 await viewModel.calibrateAndScoreCurrentCatalog()
             }

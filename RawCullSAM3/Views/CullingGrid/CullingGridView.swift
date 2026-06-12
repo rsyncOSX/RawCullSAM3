@@ -113,7 +113,8 @@ private struct BurstGroupHeaderView: View {
             }
             .font(.caption)
             .controlSize(.mini)
-            .help("Undo the last burst action")
+            .disabled(viewModel.isCreatingSAM3Masks)
+            .help(burstActionHelp("Undo the last burst action"))
         }
     }
 
@@ -129,14 +130,16 @@ private struct BurstGroupHeaderView: View {
                 }
                 .font(.caption)
                 .controlSize(.mini)
-                .help("Return this burst to the active review queue")
+                .disabled(viewModel.isCreatingSAM3Masks)
+                .help(burstActionHelp("Return this burst to the active review queue"))
 
                 Button("Reviewed") {
                     viewModel.markBurstGroupReviewed(groupID: groupID)
                 }
                 .font(.caption)
                 .controlSize(.mini)
-                .help("Mark this burst as reviewed")
+                .disabled(viewModel.isCreatingSAM3Masks)
+                .help(burstActionHelp("Mark this burst as reviewed"))
 
             case .reviewed:
                 Button("Needs Review") {
@@ -144,7 +147,8 @@ private struct BurstGroupHeaderView: View {
                 }
                 .font(.caption)
                 .controlSize(.mini)
-                .help("Return this burst to the active review queue")
+                .disabled(viewModel.isCreatingSAM3Masks)
+                .help(burstActionHelp("Return this burst to the active review queue"))
 
             case .decisionApplied, .manualWinnerOverride:
                 EmptyView()
@@ -155,14 +159,16 @@ private struct BurstGroupHeaderView: View {
                 }
                 .font(.caption)
                 .controlSize(.mini)
-                .help("Mark this burst as reviewed")
+                .disabled(viewModel.isCreatingSAM3Masks)
+                .help(burstActionHelp("Mark this burst as reviewed"))
 
                 Button("Defer") {
                     viewModel.deferBurstGroup(groupID: groupID)
                 }
                 .font(.caption)
                 .controlSize(.mini)
-                .help("Defer this burst for later review")
+                .disabled(viewModel.isCreatingSAM3Masks)
+                .help(burstActionHelp("Defer this burst for later review"))
             }
         }
     }
@@ -175,13 +181,15 @@ private struct BurstGroupHeaderView: View {
                 .tint(.green)
                 .font(.caption)
                 .controlSize(.mini)
-                .help("Rate best frame ★★★ and reject all others")
+                .disabled(viewModel.isCreatingSAM3Masks)
+                .help(burstActionHelp("Rate best frame ★★★ and reject all others"))
         } else {
             Button(title) { viewModel.keepBestInGroup(from: files) }
                 .buttonStyle(.bordered)
                 .font(.caption)
                 .controlSize(.mini)
-                .help("Rate best frame ★★★ and reject all others")
+                .disabled(viewModel.isCreatingSAM3Masks)
+                .help(burstActionHelp("Rate best frame ★★★ and reject all others"))
         }
     }
 
@@ -192,15 +200,15 @@ private struct BurstGroupHeaderView: View {
                 .buttonStyle(.borderedProminent)
                 .font(.caption)
                 .controlSize(.mini)
-                .disabled(!hasSharpnessScores)
-                .help("Rate best frame ★★★, second frame ★★, and reject all others")
+                .disabled(!hasSharpnessScores || viewModel.isCreatingSAM3Masks)
+                .help(burstActionHelp("Rate best frame ★★★, second frame ★★, and reject all others"))
         } else {
             Button("Keep Top 2") { viewModel.keepTopTwoInGroup(from: files) }
                 .buttonStyle(.bordered)
                 .font(.caption)
                 .controlSize(.mini)
-                .disabled(!hasSharpnessScores)
-                .help("Rate best frame ★★★, second frame ★★, and reject all others")
+                .disabled(!hasSharpnessScores || viewModel.isCreatingSAM3Masks)
+                .help(burstActionHelp("Rate best frame ★★★, second frame ★★, and reject all others"))
         }
     }
 
@@ -211,14 +219,20 @@ private struct BurstGroupHeaderView: View {
                 .buttonStyle(.borderedProminent)
                 .font(.caption)
                 .controlSize(.mini)
-                .help("Open this burst for review")
+                .disabled(viewModel.isCreatingSAM3Masks)
+                .help(burstActionHelp("Open this burst for review"))
         } else {
             Button(title) { viewModel.compareBurstGroup(files) }
                 .buttonStyle(.bordered)
                 .font(.caption)
                 .controlSize(.mini)
-                .help("Open this burst for review")
+                .disabled(viewModel.isCreatingSAM3Masks)
+                .help(burstActionHelp("Open this burst for review"))
         }
+    }
+
+    private func burstActionHelp(_ fallback: String) -> String {
+        viewModel.isCreatingSAM3Masks ? "Unavailable while SAM3 masks are being created" : fallback
     }
 
     private func bestLabel(_ best: BestInGroupInfo) -> String {
@@ -635,6 +649,7 @@ struct CullingGridView<Header: View>: View {
 
     private func handleBurstKeyPress(_ characters: String) -> KeyPress.Result {
         guard viewModel.showsBurstGroups,
+              !viewModel.isCreatingSAM3Masks,
               let groupFiles = currentBurstGroupFiles
         else { return .ignored }
 

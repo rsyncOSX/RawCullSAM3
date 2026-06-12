@@ -62,6 +62,39 @@ struct RawCullMainView: View {
         .sheet(isPresented: $viewModel.showSavedFiles) {
             SavedFilesView()
         }
+        .alert(viewModel.alertTitle, isPresented: $viewModel.showingAlert) {
+            switch viewModel.alertType {
+            case .extractJPGs:
+                Button("Extract", role: .destructive) {
+                    extractFilteredFilesJPGS()
+                }
+                .frame(width: 100)
+
+            case .createJPGDiskCache:
+                Button("Create Cache") {
+                    viewModel.startScanAndExtractJPGs()
+                }
+                .frame(width: 100)
+
+            case .createSAM3Masks:
+                Button("Create Masks") {
+                    viewModel.startSAM3MaskCreationForFilteredCatalog()
+                }
+                .frame(width: 100)
+
+            case .clearRatedFiles:
+                Button("Clear", role: .destructive) {
+                    viewModel.clearCurrentCatalogCullingState()
+                }
+                .frame(width: 100)
+
+            case .none:
+                EmptyView()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(viewModel.alertMessage)
+        }
         .sheet(item: $viewModel.rawDiagnosticsPresentation) { presentation in
             RawFileDiagnosticsView(log: presentation.log) {
                 viewModel.rawDiagnosticsPresentation = nil
@@ -115,33 +148,6 @@ struct RawCullMainView: View {
             .navigationTitle((viewModel.selectedSource?.name ?? "Files") +
                 " (\(viewModel.filteredFiles.count) files)")
             .toolbar { toolbarContent }
-            .alert(viewModel.alertTitle, isPresented: $viewModel.showingAlert) {
-                switch viewModel.alertType {
-                case .extractJPGs:
-                    Button("Extract", role: .destructive) {
-                        extractFilteredFilesJPGS()
-                    }
-                    .frame(width: 100)
-
-                case .createJPGDiskCache:
-                    Button("Create Cache") {
-                        viewModel.startScanAndExtractJPGs()
-                    }
-                    .frame(width: 100)
-
-                case .clearRatedFiles:
-                    Button("Clear", role: .destructive) {
-                        viewModel.clearCurrentCatalogCullingState()
-                    }
-                    .frame(width: 100)
-
-                case .none:
-                    EmptyView()
-                }
-                Button("Cancel", role: .cancel) {}
-            } message: {
-                Text(viewModel.alertMessage)
-            }
         } detail: {
             RawCullDetailContainerView(
                 viewModel: viewModel,
