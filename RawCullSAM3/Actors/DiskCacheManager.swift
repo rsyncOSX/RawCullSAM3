@@ -13,7 +13,7 @@ actor DiskCacheManager {
             folder = cacheDirectory
         } else {
             let paths = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)
-            folder = paths[0].appendingPathComponent("no.blogspot.RawCull/Thumbnails")
+            folder = paths[0].appendingPathComponent("no.blogspot.RawCullSAM3/Thumbnails")
         }
         self.cacheDirectory = folder
         do {

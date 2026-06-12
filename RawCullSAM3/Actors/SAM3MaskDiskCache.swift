@@ -16,7 +16,7 @@ actor SAM3MaskDiskCache {
             folder = cacheDirectory
         } else {
             let paths = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)
-            folder = paths[0].appendingPathComponent("no.blogspot.RawCull/SAM3Masks")
+            folder = paths[0].appendingPathComponent("no.blogspot.RawCullSAM3/SAM3Masks")
         }
         self.cacheDirectory = folder
         do {

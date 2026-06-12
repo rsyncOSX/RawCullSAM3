@@ -19,7 +19,7 @@ actor FullSizeJPGDiskCache {
             folder = cacheDirectory
         } else {
             let paths = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)
-            folder = paths[0].appendingPathComponent("no.blogspot.RawCull/FullsizeJPGs")
+            folder = paths[0].appendingPathComponent("no.blogspot.RawCullSAM3/FullsizeJPGs")
         }
         self.cacheDirectory = folder
         do {
