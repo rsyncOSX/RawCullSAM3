@@ -16,6 +16,10 @@ enum SAM3MaskBuilderMain {
             }
 
             let files = await scanCatalog(at: catalogURL)
+            guard !files.isEmpty else {
+                throw HelperError.noFilesFound(catalogURL.path)
+            }
+
             let provider = CoreAISAM3Provider(
                 resourcesURL: URL(fileURLWithPath: request.modelResourcesPath, isDirectory: true),
             )
@@ -74,8 +78,19 @@ enum SAM3MaskBuilderMain {
     }
 
     private nonisolated static func scanCatalog(at url: URL) async -> [FileItem] {
-        let scanner = ScanFiles()
-        let files = await scanner.scanFiles(url: url)
+        let discovered = await DiscoverFiles().discoverFiles(at: url, recursive: false)
+        let keys: Set<URLResourceKey> = [.nameKey, .fileSizeKey, .contentModificationDateKey]
+        let files = discovered.map { fileURL in
+            let values = try? fileURL.resourceValues(forKeys: keys)
+            return FileItem(
+                url: fileURL,
+                name: values?.name ?? fileURL.lastPathComponent,
+                size: Int64(values?.fileSize ?? 0),
+                dateModified: values?.contentModificationDate ?? Date(),
+                exifData: nil,
+                afFocusNormalized: nil,
+            )
+        }
         return files.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
     }
 
@@ -104,11 +119,15 @@ enum SAM3MaskBuilderMain {
 
 private enum HelperError: LocalizedError {
     case missingRequestPath
+    case noFilesFound(String)
 
     var errorDescription: String? {
         switch self {
         case .missingRequestPath:
             "Missing --request argument."
+
+        case let .noFilesFound(path):
+            "No supported RAW files were found in catalog: \(path)"
         }
     }
 }
