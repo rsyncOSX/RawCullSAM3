@@ -301,17 +301,20 @@ is the most dependent feature on the list and should be implemented last.
 ## Dependency Graph
 
 ```
-Idea 4 (Batch Prefetch)
-├── Idea 2 (Grid Badges)       — benefits from cache, not required
-├── Idea 1 (Confidence Filter) — benefits from cache, not required
-├── Idea 3 (Sidecar Export)    — benefits from cache, not required
-├── Idea 5 (Masked Histogram)  — required for instant UX
-├── Idea 6 (Auto-Classification) — not required but practical
-├── Idea 7 (Subject-Weighted Sharpness)  — required for fast scoring
-│   └── Idea 11 (Best-in-Burst)          — requires idea 7
-├── Idea 8 (Masked Similarity)           — requires idea 4 & idea 6
-│   └── Idea 11 (Best-in-Burst)          — requires idea 8 (optional)
-└── Idea 10 (Background Blur)  — benefits from cache, not required
+Idea 12 (Persistent Disk Mask Cache)  ← cross-session multiplier
+├── All ideas that reference "cached SAM 3 result" are instant even on
+│   first open of a previously processed catalog
+└── Idea 4 (Batch Prefetch) — still valuable; writes into disk cache
+    ├── Idea 2 (Grid Badges)         — benefits from cache, not required
+    ├── Idea 1 (Confidence Filter)   — benefits from cache, not required
+    ├── Idea 3 (Sidecar Export)      — benefits from cache, not required
+    ├── Idea 5 (Masked Histogram)    — required for instant UX
+    ├── Idea 6 (Auto-Classification) — not required but practical
+    ├── Idea 7 (Subject-Weighted Sharpness)  — required for fast scoring
+    │   └── Idea 11 (Best-in-Burst)          — requires idea 7
+    ├── Idea 8 (Masked Similarity)           — requires idea 4 & idea 6
+    │   └── Idea 11 (Best-in-Burst)          — requires idea 8 (optional)
+    └── Idea 10 (Background Blur)  — benefits from cache, not required
 
 Idea 9 (Smart Crop) — independent, only needs on-demand mask
 Idea 3 (Sidecar Export) — can share bounding-box logic with Idea 9
@@ -334,5 +337,90 @@ Idea 3 (Sidecar Export) — can share bounding-box logic with Idea 9
 | 9 | Smart Crop Suggestion | ⭐⭐⭐⭐ Medium–Hard | 5–10 days | None (on-demand mask) | — |
 | 10 | Background Blur | ⭐⭐⭐⭐ Medium–Hard | 5–10 days | None (on-demand mask) | — |
 | 11 | Best-in-Burst Subject Pick | ⭐⭐⭐⭐⭐ Hard | 2–4 weeks | None w/ cache | #4, #7 |
+| 12 | Persistent Disk Mask Cache | ⭐⭐ Easy–Medium | 2–4 days | None (eliminates re-inference) | — |
 
-**Recommended build order**: 1 → 2 → 4 → 3 → 5 → 7 → 6 → 9 → 10 → 8 → 11
+**Recommended build order**: 12 → 1 → 2 → 4 → 3 → 5 → 7 → 6 → 9 → 10 → 8 → 11
+
+---
+
+## On SAM 3's Core Role and the Mask-as-Output Principle
+
+SAM 3's primary and most important function is **producing subject masks** — binary or alpha-channel images that tell every other part of the app which pixels belong to the subject and which belong to the background. Everything else in this document (filtering, histograms, sharpness scoring, similarity search, crop suggestions) is downstream of that mask. The mask is the result; SAM 3 inference is the cost paid to obtain it.
+
+This leads directly to a strategic observation: because the mask is the *output* and inference is the *cost*, any scheme that eliminates redundant inference multiplies the value of all downstream features. The in-session `SubjectMaskCache` already does this within one app launch. The missing piece is a **persistent disk cache** that survives across launches (idea 12 below).
+
+---
+
+## 12 — Persistent On-Disk SAM 3 Mask Cache
+
+**What.** Extend the mask caching layer to write each computed mask to disk
+(inside `~/Library/Caches/no.blogspot.RawCull/SAM3Masks/`) alongside a small
+JSON sidecar that records the prompt, confidence, model version, and the source
+file's size and modification date. On subsequent app launches — or when any
+AI-powered feature needs a mask for a previously processed image — the mask is
+read from disk in milliseconds rather than re-running SAM 3 inference. Combined
+with **idea 4** (batch prefetch), the second and all subsequent catalog opens
+become effectively instant from the AI perspective.
+
+**Why this matters beyond idea 4.** Idea 4 (batch prefetch) warms the
+*session-local* `SubjectMaskCache` by running SAM 3 in the background. It still
+costs one full inference pass every time the app relaunches. Idea 12 makes
+*every* future launch free for images whose masks are already on disk. The
+relationship is: idea 4 fills the disk cache once; idea 12 makes that investment
+permanent until the source file changes or the cache is pruned.
+
+**How.** Introduce a new actor `SAM3MaskDiskCache` that follows the existing
+pattern of `FullSizeJPGDiskCache` and `DiskCacheManager`:
+
+1. **Cache filename:** MD5 of the string
+   `"v1-sam3mask:<sourceURL.standardized.path>:<prompt.rawValue>:<modelVersion>:<inputMaxSide>"`.
+   Appended extensions: `.png` for the mask image, `.json` for the metadata
+   sidecar — or optionally embed metadata in the PNG's `iTXt` chunk to keep the
+   cache as single-file-per-entry.
+
+2. **On inference completion** (`SubjectSegmentationActor.segment(...)`):
+   after storing the result in the in-memory `SubjectMaskCache`, serialise the
+   mask `CGImage` to lossless **PNG** (not JPEG — the mask is a smooth alpha
+   channel and JPEG artefacts would corrupt edge precision) and write it at
+   `.background` priority. The JSON sidecar records `confidence`, `prompt`,
+   `modelVersion`, `inputMaxSide`, `fileSize`, and `modificationDate`.
+
+3. **On cache lookup** (before launching inference): check in-memory cache first
+   (as today), then check disk. If the disk entry exists and the source file's
+   current `fileSize` and `modificationDate` match the sidecar, reconstruct the
+   `SubjectSegmentationResult` from disk and populate the in-memory cache. No
+   inference needed.
+
+4. **Staleness detection:** if the source file has been modified (different size
+   or date), the disk entry is silently ignored and new inference runs, overwriting
+   the stale entry.
+
+5. **Pruning and size management:** reuse the existing `pruneCache(maxAgeInDays:)`
+   pattern. Default TTL: 90 days (masks are cheap to store; re-inference is
+   expensive). Expose disk-cache size and a "Clear SAM 3 mask cache" button in
+   the existing `CacheSettingsTab`.
+
+**Storage cost.** A SAM 3 mask at typical output resolution (e.g. 1 000 × 667 px
+single-channel) compresses to roughly 5–30 KB as a lossless PNG (smooth alpha
+gradients compress well). For a catalog of 500 images × 6 prompts = 3 000 masks
+× 20 KB average ≈ **60 MB**. That is comparable to the existing thumbnail disk
+cache and negligible on any modern Mac.
+
+**Compute impact.** PNG encoding of a mask is a single CPU pass — a few
+milliseconds at most. The disk write happens at background priority and does not
+block the UI. All downstream features (ideas 1–11) that currently state "None
+w/ cache" or "requires idea 4" gain an additional benefit: the cache is populated
+even before a batch-prefetch has had time to run.
+
+**Integration points.**
+- `SubjectSegmentationActor` gains a reference to `SAM3MaskDiskCache` alongside
+  the existing `SubjectMaskCache`.
+- `CacheSettingsTab` gains a new row showing SAM 3 mask cache size.
+- The same `pruneCache` and `removeAll` plumbing used by `DiskCacheManager` is
+  reused verbatim.
+
+**Depends on.** Nothing. Works independently of all other ideas, but acts as a
+force-multiplier for every idea that consumes a cached mask.
+
+**Complexity.** ⭐⭐ Easy–Medium  
+**Timeframe.** 2–4 days
