@@ -40,7 +40,7 @@ actor SubjectSegmentationActor {
         fileURL: URL,
         prompt: SubjectSegmentationPrompt,
     ) async throws -> SubjectSegmentationResult {
-        let key = cacheKey(fileID: fileID, fileURL: fileURL, prompt: prompt)
+        let key = await cacheKey(fileID: fileID, fileURL: fileURL, prompt: prompt)
         if let cached = await cache.result(for: key) {
             return cached
         }
@@ -54,6 +54,8 @@ actor SubjectSegmentationActor {
             await cache.store(diskResult, for: key)
             return diskResult
         }
+
+        try Task.checkCancellation()
 
         let requestID = UUID()
         activeRequestID = requestID
@@ -111,7 +113,11 @@ actor SubjectSegmentationActor {
             ),
         )
         await cache.store(displayResult, for: key)
-        await diskCache.save(displayResult, for: fileURL, inputMaxSide: maxSide)
+        let diskCache = diskCache
+        let maxSide = self.maxSide
+        Task.detached(priority: .background) {
+            await diskCache.save(displayResult, for: fileURL, inputMaxSide: maxSide)
+        }
         return displayResult
     }
 
@@ -139,7 +145,7 @@ actor SubjectSegmentationActor {
         for file in files {
             try Task.checkCancellation()
 
-            let key = cacheKey(fileID: file.id, fileURL: file.url, prompt: prompt)
+            let key = await cacheKey(fileID: file.id, fileURL: file.url, prompt: prompt)
             if await cache.result(for: key) != nil {
                 cached += 1
                 completed += 1
@@ -214,15 +220,24 @@ actor SubjectSegmentationActor {
         fileID: UUID,
         fileURL: URL,
         prompt: SubjectSegmentationPrompt,
-    ) -> SubjectMaskCacheKey {
-        let attributes = try? FileManager.default.attributesOfItem(atPath: fileURL.path)
+    ) async -> SubjectMaskCacheKey {
+        let path = fileURL.path
+        let modelVersion = provider.modelVersion
+        let maxSide = self.maxSide
+        let (fileSize, modificationDate): (Int64?, Date?) = await Task.detached(priority: .utility) {
+            let attributes = try? FileManager.default.attributesOfItem(atPath: path)
+            return (
+                (attributes?[.size] as? NSNumber).map { $0.int64Value },
+                attributes?[.modificationDate] as? Date,
+            )
+        }.value
         return SubjectMaskCacheKey(
             fileID: fileID,
             prompt: prompt,
-            modelVersion: provider.modelVersion,
+            modelVersion: modelVersion,
             inputMaxSide: maxSide,
-            fileSize: (attributes?[.size] as? NSNumber).map { $0.int64Value },
-            modificationDate: attributes?[.modificationDate] as? Date,
+            fileSize: fileSize,
+            modificationDate: modificationDate,
         )
     }
 

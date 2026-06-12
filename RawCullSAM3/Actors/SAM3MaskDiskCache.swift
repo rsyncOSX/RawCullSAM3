@@ -26,24 +26,6 @@ actor SAM3MaskDiskCache {
         }
     }
 
-    func contains(
-        for sourceURL: URL,
-        prompt: SubjectSegmentationPrompt,
-        modelVersion: String,
-        inputMaxSide: Int,
-    ) async -> Bool {
-        let urls = cacheURLs(
-            for: sourceURL,
-            prompt: prompt,
-            modelVersion: modelVersion,
-            inputMaxSide: inputMaxSide,
-        )
-        return await Task.detached(priority: .utility) {
-            FileManager.default.fileExists(atPath: urls.mask.path)
-                && FileManager.default.fileExists(atPath: urls.metadata.path)
-        }.value
-    }
-
     func load(
         for sourceURL: URL,
         fileID: UUID,
@@ -51,6 +33,7 @@ actor SAM3MaskDiskCache {
         modelVersion: String,
         inputMaxSide: Int,
     ) async -> SubjectSegmentationResult? {
+        guard !Task.isCancelled else { return nil }
         let urls = cacheURLs(
             for: sourceURL,
             prompt: prompt,
@@ -115,23 +98,6 @@ actor SAM3MaskDiskCache {
             Logger.process.warning("SAM3MaskDiskCache: Failed to encode mask PNG for \(sourceURL.path)")
             return
         }
-        let sourceIdentity = Self.sourceIdentity(for: sourceURL)
-        let metadata = SAM3MaskDiskCacheMetadata(
-            prompt: result.prompt,
-            confidence: result.confidence,
-            modelVersion: result.modelVersion,
-            inputMaxSide: inputMaxSide,
-            fileSize: sourceIdentity.fileSize,
-            modificationDate: sourceIdentity.modificationDate,
-            inputWidth: result.inputSize.width,
-            inputHeight: result.inputSize.height,
-            outputWidth: CGFloat(result.mask.width),
-            outputHeight: CGFloat(result.mask.height),
-        )
-        guard let metadataData = try? JSONEncoder().encode(metadata) else {
-            Logger.process.warning("SAM3MaskDiskCache: Failed to encode metadata for \(sourceURL.path)")
-            return
-        }
         let urls = cacheURLs(
             for: sourceURL,
             prompt: result.prompt,
@@ -140,6 +106,23 @@ actor SAM3MaskDiskCache {
         )
 
         await Task.detached(priority: .background) {
+            let sourceIdentity = Self.sourceIdentity(for: sourceURL)
+            let metadata = SAM3MaskDiskCacheMetadata(
+                prompt: result.prompt,
+                confidence: result.confidence,
+                modelVersion: result.modelVersion,
+                inputMaxSide: inputMaxSide,
+                fileSize: sourceIdentity.fileSize,
+                modificationDate: sourceIdentity.modificationDate,
+                inputWidth: result.inputSize.width,
+                inputHeight: result.inputSize.height,
+                outputWidth: CGFloat(result.mask.width),
+                outputHeight: CGFloat(result.mask.height),
+            )
+            guard let metadataData = try? JSONEncoder().encode(metadata) else {
+                Logger.process.warning("SAM3MaskDiskCache: Failed to encode metadata for \(sourceURL.path)")
+                return
+            }
             do {
                 try pngData.write(to: urls.mask, options: .atomic)
                 try metadataData.write(to: urls.metadata, options: .atomic)
