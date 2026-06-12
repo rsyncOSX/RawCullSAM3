@@ -181,6 +181,7 @@ final class RawCullViewModel {
     @ObservationIgnored var activeCatalogLoadURL: URL?
     @ObservationIgnored var sam3MaskCreationTask: Task<Void, Never>?
     @ObservationIgnored var sam3MaskHelperController = SAM3MaskHelperController()
+    @ObservationIgnored var sam3ModelResourceManager = SAM3ModelResourceManager()
     @ObservationIgnored var sam3SubjectSegmentationActor = SubjectSegmentationActor()
     /// In-flight ARW→JPEG extraction or thumbnail load task for the zoom window.
     /// Cancelled when the zoom window closes or a new file is opened for zoom.

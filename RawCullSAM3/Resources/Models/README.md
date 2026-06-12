@@ -1,12 +1,20 @@
 # SAM3 Core AI Model
 
-Place the local SAM3 Core AI model resource for development here.
+Place the local SAM3 Core AI model resource for development here, or install it
+for app/runtime use at:
 
-RawCull looks in the app bundle's `Models` subdirectory for a Core AI model
-bundle named `SAM3` first. The package loader expects that folder to contain
-`metadata.json`, `assets.main`, and the tokenizer assets required by SAM3.
-RawCull also checks the app bundle resource root because Xcode synchronized
-groups can flatten simple resource files.
+```text
+~/Library/Application Support/RawCull/Models/SAM3
+```
+
+RawCull checks the Application Support install location first. Debug builds may
+also fall back to a bundled Core AI model bundle named `SAM3` for local
+development. Release/App Store builds should not include the model files in the
+app bundle.
+
+The package loader expects the `SAM3` folder to contain `metadata.json`, the
+asset named by `metadata.json` `assets.main`, and the tokenizer assets required
+by SAM3.
 
 For migration/dev convenience, RawCull also checks for:
 

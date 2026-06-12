@@ -16,7 +16,7 @@ actor CoreAISAM3Provider: SubjectSegmentationProvider {
 
     private nonisolated static let maskThreshold: Float = 0.50
 
-    init(resourcesURL: URL? = CoreAISAM3Provider.defaultResourcesURL()) {
+    init(resourcesURL: URL? = SAM3ModelResourceManager.installedModelURL()) {
         self.resourcesURL = resourcesURL
     }
 
@@ -87,7 +87,7 @@ actor CoreAISAM3Provider: SubjectSegmentationProvider {
         }
         guard let resourcesURL else {
             throw SubjectSegmentationError.helperError(
-                "Add SAM3.aimodel, SAM3.aimodelc, or a compiled SAM3 model folder to RawCullSAM3/Resources/Models",
+                "SAM3 model resources are not installed. Open Settings > AI to download the model files.",
             )
         }
 
@@ -210,37 +210,6 @@ actor CoreAISAM3Provider: SubjectSegmentationProvider {
         return message
     }
 
-    private nonisolated static func defaultResourcesURL(bundle: Bundle = .main) -> URL? {
-        for subdirectory in ["Models", nil] {
-            if let modelBundle = bundle.url(
-                forResource: "SAM3",
-                withExtension: nil,
-                subdirectory: subdirectory,
-            ) {
-                return modelBundle
-            }
-            if let compiledModel = bundle.url(
-                forResource: "SAM3",
-                withExtension: "aimodelc",
-                subdirectory: subdirectory,
-            ) {
-                return compiledModel
-            }
-            if let sourceModel = bundle.url(
-                forResource: "SAM3",
-                withExtension: "aimodel",
-                subdirectory: subdirectory,
-            ) {
-                return sourceModel
-            }
-        }
-        if let resourceRoot = bundle.resourceURL,
-           isModelBundle(resourceRoot) {
-            return resourceRoot
-        }
-        return nil
-    }
-
     private nonisolated static func assetName(in resourcesURL: URL?) -> String? {
         guard let resourcesURL else { return nil }
         let metadataURL = resourcesURL.appendingPathComponent("metadata.json")
@@ -264,16 +233,6 @@ actor CoreAISAM3Provider: SubjectSegmentationProvider {
             return metadata.name
         }
         return resourcesURL.lastPathComponent
-    }
-
-    private nonisolated static func isModelBundle(_ url: URL) -> Bool {
-        guard let assetName = assetName(in: url) else { return false }
-        let assetURL = url.appendingPathComponent(assetName)
-        let tokenizerURL = url.appendingPathComponent("tokenizer.json")
-        let nestedTokenizerURL = url.appendingPathComponent("tokenizer/tokenizer.json")
-        return FileManager.default.fileExists(atPath: assetURL.path)
-            && (FileManager.default.fileExists(atPath: tokenizerURL.path)
-                || FileManager.default.fileExists(atPath: nestedTokenizerURL.path))
     }
 
     private nonisolated struct ModelBundleMetadata: Decodable {

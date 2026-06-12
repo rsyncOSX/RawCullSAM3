@@ -94,6 +94,21 @@ extension RawCullViewModel {
               !sam3MaskCreationCatalogFiles.isEmpty
         else { return }
 
+        guard sam3ModelResourceManager.installedModelURL() != nil else {
+            sam3MaskCreationTask?.cancel()
+            sam3MaskCreationProgress = SubjectMaskPrefetchProgress(
+                completed: 0,
+                total: sam3MaskCreationCatalogFiles.count,
+                cached: 0,
+                generated: 0,
+                failed: 0,
+                currentFileID: sam3MaskCreationCatalogFiles.first?.id,
+            )
+            sam3MaskCreationStatusText = "Could not start SAM3 mask helper: SAM3 model resources are missing. Open Settings > AI to install them."
+            isCreatingSAM3Masks = true
+            return
+        }
+
         sam3MaskCreationTask?.cancel()
         sam3MaskCreationProgress = SubjectMaskPrefetchProgress(
             completed: 0,

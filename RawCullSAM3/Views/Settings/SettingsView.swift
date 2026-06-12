@@ -29,6 +29,11 @@ struct SettingsView: View {
                             Label("Focus", systemImage: "viewfinder.circle")
                         }
 
+                    AISettingsTab()
+                        .tabItem {
+                            Label("AI", systemImage: "sparkles")
+                        }
+
                     MemoryTab()
                         .tabItem {
                             Label("Memory", systemImage: "rectangle.compress.vertical")

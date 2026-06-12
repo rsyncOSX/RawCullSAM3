@@ -304,7 +304,6 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				A00000000000000000000015 /* Models in Resources */,
 				E97E976C2F210EAB001A4239 /* Assets.xcassets in Resources */,
 				E97E976D2F210EAB001A4239 /* RawCullicon.icon in Resources */,
 			);
@@ -362,7 +361,7 @@
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_USER_SELECTED_FILES = NO;
-				EXCLUDED_SOURCE_FILE_NAMES = Kernels.ci.metal;
+				EXCLUDED_SOURCE_FILE_NAMES = "Kernels.ci.metal Resources/Models/* *.aimodel *.aimodelc";
 				GENERATE_INFOPLIST_FILE = NO;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -396,7 +395,7 @@
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_USER_SELECTED_FILES = NO;
-				EXCLUDED_SOURCE_FILE_NAMES = Kernels.ci.metal;
+				EXCLUDED_SOURCE_FILE_NAMES = "Kernels.ci.metal Resources/Models/* *.aimodel *.aimodelc";
 				GENERATE_INFOPLIST_FILE = NO;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -620,6 +619,7 @@
 				ENABLE_RESOURCE_ACCESS_PRINTING = NO;
 				ENABLE_RESOURCE_ACCESS_USB = NO;
 				ENABLE_USER_SELECTED_FILES = readwrite;
+				EXCLUDED_SOURCE_FILE_NAMES = "Resources/Models/* *.aimodel *.aimodelc";
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.photography";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
@@ -680,6 +680,7 @@
 				ENABLE_RESOURCE_ACCESS_PRINTING = NO;
 				ENABLE_RESOURCE_ACCESS_USB = NO;
 				ENABLE_USER_SELECTED_FILES = readwrite;
+				EXCLUDED_SOURCE_FILE_NAMES = "Resources/Models/* *.aimodel *.aimodelc";
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.photography";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";

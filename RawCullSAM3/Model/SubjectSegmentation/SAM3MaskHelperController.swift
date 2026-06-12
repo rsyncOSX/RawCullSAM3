@@ -3,6 +3,7 @@ import Foundation
 
 @MainActor
 final class SAM3MaskHelperController {
+    private let modelResourceManager: SAM3ModelResourceManager
     private var process: Process?
     private var outputPipe: Pipe?
     private var errorPipe: Pipe?
@@ -15,6 +16,10 @@ final class SAM3MaskHelperController {
         process?.isRunning == true
     }
 
+    init(modelResourceManager: SAM3ModelResourceManager = SAM3ModelResourceManager()) {
+        self.modelResourceManager = modelResourceManager
+    }
+
     func start(
         catalogURL: URL,
         onEvent: @escaping @MainActor (SAM3MaskBuildEvent) -> Void,
@@ -23,7 +28,7 @@ final class SAM3MaskHelperController {
         cancel()
 
         let helperURL = try Self.helperExecutableURL()
-        let requestURL = try Self.writeRequest(for: catalogURL)
+        let requestURL = try writeRequest(for: catalogURL)
         let process = Process()
         let outputPipe = Pipe()
         let errorPipe = Pipe()
@@ -151,18 +156,10 @@ final class SAM3MaskHelperController {
         throw HelperControllerError.helperNotFound
     }
 
-    private static func writeRequest(for catalogURL: URL) throws -> URL {
-        let request = SAM3MaskBuildRequest(
-            catalogBookmark: try catalogURL.bookmarkData(
-                options: [.withSecurityScope],
-                includingResourceValuesForKeys: nil,
-                relativeTo: nil,
-            ),
-            catalogPath: catalogURL.path,
-            modelResourcesPath: try modelResourcesURL().path,
-            maskCachePath: SharedMemoryCache.shared.sam3MaskDiskCache.cacheDirectory.path,
-            rawCullAppPath: Bundle.main.bundleURL.path,
-            parentProcessID: ProcessInfo.processInfo.processIdentifier,
+    private func writeRequest(for catalogURL: URL) throws -> URL {
+        let request = try Self.makeRequest(
+            for: catalogURL,
+            modelResourceManager: modelResourceManager,
         )
         let requestURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("RawCullSAM3MaskBuilder-\(UUID().uuidString)")
@@ -172,41 +169,25 @@ final class SAM3MaskHelperController {
         return requestURL
     }
 
-    private static func modelResourcesURL() throws -> URL {
-        if let url = Bundle.main.url(forResource: "SAM3", withExtension: nil, subdirectory: "Models") {
-            return url
+    static func makeRequest(
+        for catalogURL: URL,
+        modelResourceManager: SAM3ModelResourceManager = SAM3ModelResourceManager(),
+    ) throws -> SAM3MaskBuildRequest {
+        guard let modelResourcesURL = modelResourceManager.installedModelURL() else {
+            throw HelperControllerError.modelResourcesNotFound
         }
-        if let url = Bundle.main.url(forResource: "SAM3", withExtension: nil, subdirectory: "Resources/Models") {
-            return url
-        }
-        if let url = Bundle.main.url(forResource: "SAM3", withExtension: nil) {
-            return url
-        }
-        if let resourceRoot = Bundle.main.resourceURL {
-            let candidates = [
-                resourceRoot
-                    .appendingPathComponent("Models", isDirectory: true)
-                    .appendingPathComponent("SAM3", isDirectory: true),
-                resourceRoot
-                    .appendingPathComponent("SAM3", isDirectory: true),
-                Bundle.main.bundleURL
-                    .deletingLastPathComponent()
-                    .appendingPathComponent("RawCullSAM3", isDirectory: true)
-                    .appendingPathComponent("Resources", isDirectory: true)
-                    .appendingPathComponent("Models", isDirectory: true)
-                    .appendingPathComponent("SAM3", isDirectory: true),
-            ]
-            for candidate in candidates where isSAM3ModelBundle(candidate) {
-                return candidate
-            }
-        }
-        throw HelperControllerError.modelResourcesNotFound
-    }
-
-    private static func isSAM3ModelBundle(_ url: URL) -> Bool {
-        let fileManager = FileManager.default
-        return fileManager.fileExists(atPath: url.appendingPathComponent("metadata.json").path) &&
-            fileManager.fileExists(atPath: url.appendingPathComponent("tokenizer/tokenizer.json").path)
+        return SAM3MaskBuildRequest(
+            catalogBookmark: try catalogURL.bookmarkData(
+                options: [.withSecurityScope],
+                includingResourceValuesForKeys: nil,
+                relativeTo: nil,
+            ),
+            catalogPath: catalogURL.path,
+            modelResourcesPath: modelResourcesURL.path,
+            maskCachePath: SharedMemoryCache.shared.sam3MaskDiskCache.cacheDirectory.path,
+            rawCullAppPath: Bundle.main.bundleURL.path,
+            parentProcessID: ProcessInfo.processInfo.processIdentifier,
+        )
     }
 }
 
