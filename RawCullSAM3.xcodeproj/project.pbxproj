@@ -16,6 +16,7 @@
 		A00000000000000000000008 /* RsyncArguments in Frameworks */ = {isa = PBXBuildFile; productRef = E92712B22F2CF57E00A681D0 /* RsyncArguments */; };
 		A00000000000000000000009 /* RsyncAnalyse in Frameworks */ = {isa = PBXBuildFile; productRef = E9D876E52F3B053B00119643 /* RsyncAnalyse */; };
 		A0000000000000000000000A /* ParseRsyncOutput in Frameworks */ = {isa = PBXBuildFile; productRef = E952AA612F2E37170081987F /* ParseRsyncOutput */; };
+		A00000000000000000000015 /* Models in Resources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000016 /* Models */; };
 		A2A66B0BEE3B49A2A6723A52 /* RawCullCore in Frameworks */ = {isa = PBXBuildFile; productRef = B9E553169D0B46E0B6F5FE4F /* RawCullCore */; };
 		E92712B32F2CF57E00A681D0 /* RsyncArguments in Frameworks */ = {isa = PBXBuildFile; productRef = E92712B22F2CF57E00A681D0 /* RsyncArguments */; };
 		E952AA622F2E37170081987F /* ParseRsyncOutput in Frameworks */ = {isa = PBXBuildFile; productRef = E952AA612F2E37170081987F /* ParseRsyncOutput */; };
@@ -54,6 +55,7 @@
 		E97E975D2F210EAB001A4239 /* RawCullicon.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon; path = RawCullicon.icon; sourceTree = "<group>"; };
 		E97E975E2F210EAB001A4239 /* RawCullSAM3.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = RawCullSAM3.entitlements; sourceTree = "<group>"; };
 		A00000000000000000000014 /* RawCullSAM3MaskBuilder.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = RawCullSAM3MaskBuilder.entitlements; sourceTree = "<group>"; };
+		A00000000000000000000016 /* Models */ = {isa = PBXFileReference; lastKnownFileType = folder; path = RawCullSAM3/Resources/Models; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -118,6 +120,7 @@
 				E97E975D2F210EAB001A4239 /* RawCullicon.icon */,
 				E97E975E2F210EAB001A4239 /* RawCullSAM3.entitlements */,
 				A00000000000000000000014 /* RawCullSAM3MaskBuilder.entitlements */,
+				A00000000000000000000016 /* Models */,
 				E90B07A42F1E58EA00A95D4A /* RawCullSAM3 */,
 				76194C2A2AF449BFAD9801B9 /* RawCullSAM3Tests */,
 				E90B07A32F1E58EA00A95D4A /* Products */,
@@ -301,6 +304,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A00000000000000000000015 /* Models in Resources */,
 				E97E976C2F210EAB001A4239 /* Assets.xcassets in Resources */,
 				E97E976D2F210EAB001A4239 /* RawCullicon.icon in Resources */,
 			);

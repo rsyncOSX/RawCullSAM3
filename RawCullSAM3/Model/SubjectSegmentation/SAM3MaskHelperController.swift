@@ -179,15 +179,34 @@ final class SAM3MaskHelperController {
         if let url = Bundle.main.url(forResource: "SAM3", withExtension: nil, subdirectory: "Resources/Models") {
             return url
         }
+        if let url = Bundle.main.url(forResource: "SAM3", withExtension: nil) {
+            return url
+        }
         if let resourceRoot = Bundle.main.resourceURL {
-            let repoStyle = resourceRoot
-                .appendingPathComponent("Models", isDirectory: true)
-                .appendingPathComponent("SAM3", isDirectory: true)
-            if FileManager.default.fileExists(atPath: repoStyle.path) {
-                return repoStyle
+            let candidates = [
+                resourceRoot
+                    .appendingPathComponent("Models", isDirectory: true)
+                    .appendingPathComponent("SAM3", isDirectory: true),
+                resourceRoot
+                    .appendingPathComponent("SAM3", isDirectory: true),
+                Bundle.main.bundleURL
+                    .deletingLastPathComponent()
+                    .appendingPathComponent("RawCullSAM3", isDirectory: true)
+                    .appendingPathComponent("Resources", isDirectory: true)
+                    .appendingPathComponent("Models", isDirectory: true)
+                    .appendingPathComponent("SAM3", isDirectory: true),
+            ]
+            for candidate in candidates where isSAM3ModelBundle(candidate) {
+                return candidate
             }
         }
         throw HelperControllerError.modelResourcesNotFound
+    }
+
+    private static func isSAM3ModelBundle(_ url: URL) -> Bool {
+        let fileManager = FileManager.default
+        return fileManager.fileExists(atPath: url.appendingPathComponent("metadata.json").path) &&
+            fileManager.fileExists(atPath: url.appendingPathComponent("tokenizer/tokenizer.json").path)
     }
 }
 
