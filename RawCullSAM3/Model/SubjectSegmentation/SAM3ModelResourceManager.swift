@@ -110,7 +110,7 @@ nonisolated struct SAM3ModelResourceManager {
         let baseURL = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? fileManager.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support", isDirectory: true)
         return baseURL
-            .appendingPathComponent("RawCull", isDirectory: true)
+            .appendingPathComponent("RawCullSAM3", isDirectory: true)
             .appendingPathComponent("Models", isDirectory: true)
             .appendingPathComponent("SAM3", isDirectory: true)
     }

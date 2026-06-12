@@ -92,7 +92,7 @@ PERFORMANCE_ONLY_TESTING = \
 	'-only-testing:RawCullSAM3Tests/DataRaceDetectionTests/`Extreme concurrent load reveals no data races`()'
 
 SAM3_BUNDLE_DIR = RawCullSAM3/Resources/Models/SAM3
-SAM3_INSTALL_DIR ?= $(HOME)/Library/Application Support/RawCull/Models/SAM3
+SAM3_INSTALL_DIR ?= $(HOME)/Library/Application Support/RawCullSAM3/Models/SAM3
 SAM3_COMPILE_ARCH ?= h16c
 SAM3_ASSET ?= sam3_float16.aimodel
 SAM3_GPU_ASSET ?= sam3_float16_source.gpu.aimodelc
