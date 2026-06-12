@@ -241,7 +241,7 @@ actor SAM3MaskDiskCache {
         let baseURL = cacheDirectory.appendingPathComponent(hash)
         return (
             mask: baseURL.appendingPathExtension("png"),
-            metadata: baseURL.appendingPathExtension("json")
+            metadata: baseURL.appendingPathExtension("json"),
         )
     }
 

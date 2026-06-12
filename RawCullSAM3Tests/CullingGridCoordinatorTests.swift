@@ -1,6 +1,6 @@
 import Foundation
-@testable import RawCullSAM3
 import RawCullCore
+@testable import RawCullSAM3
 import Testing
 
 private func makeGridTestFile(_ name: String, id: UUID = UUID()) -> FileItem {

@@ -315,7 +315,7 @@ struct ZoomOverlayView: View {
             rawMessageTask?.cancel()
             rawMessageTask = nil
         }
-        .onChange(of: sourceSelection.selected) { _, newSource in
+        .onChange(of: sourceSelection.selected) { _, _ in
             reload()
             loadCachedSubjectMask()
         }

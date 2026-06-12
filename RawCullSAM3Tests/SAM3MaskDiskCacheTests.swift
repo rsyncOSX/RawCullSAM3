@@ -1,7 +1,7 @@
 import AppKit
 import Foundation
-@testable import RawCullSAM3
 import RawCullCore
+@testable import RawCullSAM3
 import Testing
 
 private func makeSAM3CacheTestRoot(_ name: String = #function) throws -> URL {
@@ -16,7 +16,7 @@ private func makeSAM3CacheTestRoot(_ name: String = #function) throws -> URL {
     return root
 }
 
-nonisolated private func makeSAM3CacheTestCGImage(
+private nonisolated func makeSAM3CacheTestCGImage(
     width: Int = 32,
     height: Int = 24,
     color: CGColor = CGColor(red: 1, green: 1, blue: 1, alpha: 1),
@@ -141,10 +141,10 @@ struct SAM3MaskDiskCacheTests {
         let source = try makeSAM3CacheSource(in: root)
         let cache = SAM3MaskDiskCache(cacheDirectory: root.appendingPathComponent("Masks", isDirectory: true))
 
-        await cache.save(try makeSAM3Result(prompt: .bird, modelVersion: "a"), for: source, inputMaxSide: 1024)
-        await cache.save(try makeSAM3Result(prompt: .animal, modelVersion: "a"), for: source, inputMaxSide: 1024)
-        await cache.save(try makeSAM3Result(prompt: .bird, modelVersion: "b"), for: source, inputMaxSide: 1024)
-        await cache.save(try makeSAM3Result(prompt: .bird, modelVersion: "a"), for: source, inputMaxSide: 2048)
+        try await cache.save(makeSAM3Result(prompt: .bird, modelVersion: "a"), for: source, inputMaxSide: 1024)
+        try await cache.save(makeSAM3Result(prompt: .animal, modelVersion: "a"), for: source, inputMaxSide: 1024)
+        try await cache.save(makeSAM3Result(prompt: .bird, modelVersion: "b"), for: source, inputMaxSide: 1024)
+        try await cache.save(makeSAM3Result(prompt: .bird, modelVersion: "a"), for: source, inputMaxSide: 2048)
 
         let entries = try FileManager.default.contentsOfDirectory(
             at: root.appendingPathComponent("Masks", isDirectory: true),
@@ -360,7 +360,7 @@ struct SubjectSegmentationActorCacheTests {
         let files = [
             makeSAM3TestFileItem(url: source),
             makeSAM3TestFileItem(url: source),
-            makeSAM3TestFileItem(url: source),
+            makeSAM3TestFileItem(url: source)
         ]
         let image = try makeSAM3CacheTestCGImage()
 
@@ -446,7 +446,7 @@ struct SAM3SubjectMaskCacheReaderTests {
 @MainActor
 struct SAM3MaskCreationViewModelTests {
     @Test
-    func `candidate files use current rating filter`() async throws {
+    func `candidate files use current rating filter`() throws {
         let root = try makeSAM3CacheTestRoot()
         defer { try? FileManager.default.removeItem(at: root) }
         let keepSource = try makeSAM3CacheSource(in: root, name: "keep.ARW")
@@ -507,7 +507,7 @@ struct SAM3MaskCreationViewModelTests {
     }
 
     @Test
-    func `cancelling SAM3 mask creation clears running state`() async throws {
+    func `cancelling SAM3 mask creation clears running state`() throws {
         let root = try makeSAM3CacheTestRoot()
         defer { try? FileManager.default.removeItem(at: root) }
         let source = try makeSAM3CacheSource(in: root)
