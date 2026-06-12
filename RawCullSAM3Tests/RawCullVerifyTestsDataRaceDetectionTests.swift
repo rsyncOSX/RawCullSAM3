@@ -149,7 +149,7 @@ struct DataRaceDetectionTests {
     }
 }
 
-private func createTestThumbnail(size: Int) -> CachedThumbnail? {
+nonisolated private func createTestThumbnail(size: Int) -> CachedThumbnail? {
     let image = NSImage(size: NSSize(width: size, height: size))
     return CachedThumbnail(image: image)
 }

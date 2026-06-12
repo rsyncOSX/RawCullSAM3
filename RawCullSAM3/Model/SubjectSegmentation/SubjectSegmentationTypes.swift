@@ -132,3 +132,12 @@ nonisolated struct SubjectMaskCacheKey: Hashable {
 nonisolated struct SubjectMaskCacheEntry {
     let result: SubjectSegmentationResult
 }
+
+nonisolated struct SubjectMaskPrefetchProgress: Equatable {
+    let completed: Int
+    let total: Int
+    let cached: Int
+    let generated: Int
+    let failed: Int
+    let currentFileID: UUID?
+}

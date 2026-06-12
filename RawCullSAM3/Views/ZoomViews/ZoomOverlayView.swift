@@ -138,6 +138,8 @@ struct ZoomOverlayView: View {
     @State private var rawMessageTask: Task<Void, Never>?
     @State private var maskTask: Task<Void, Never>?
     @State private var subjectSegmentationTask: Task<Void, Never>?
+    @State private var subjectPrefetchTask: Task<Void, Never>?
+    @State private var subjectPrefetchProgress: SubjectMaskPrefetchProgress?
     @State private var subjectSegmentationActor = SubjectSegmentationActor()
     @State private var keyMonitor: Any?
     @FocusState private var isImageFocused: Bool
@@ -240,6 +242,10 @@ struct ZoomOverlayView: View {
                         subjectSegmentationState: subjectSegmentationState,
                         onToggleSubjectMask: toggleSubjectMask,
                         onSubjectPromptChange: subjectPromptChanged,
+                        subjectScanIsRunning: subjectPrefetchTask != nil,
+                        subjectScanProgress: subjectPrefetchProgress,
+                        onStartSubjectScan: startSubjectMaskScan,
+                        onCancelSubjectScan: { cancelSubjectMaskScan(clearProgress: false) },
                         hasFocusPoints: focusPoints != nil,
                         showFocusPoints: $showFocusPoints,
                         showShortcutHints: true,
@@ -315,6 +321,7 @@ struct ZoomOverlayView: View {
             maskTask?.cancel()
             maskTask = nil
             focusMask = nil
+            cancelSubjectMaskScan(clearProgress: true)
             cancelSubjectSegmentation(clearMask: true)
             rawMessageTask?.cancel()
             rawMessageTask = nil
@@ -322,6 +329,7 @@ struct ZoomOverlayView: View {
         .onChange(of: sourceSelection.selected) { _, newSource in
             if newSource != .embeddedJPG {
                 showSubjectMask = false
+                cancelSubjectMaskScan(clearProgress: false)
                 cancelSubjectSegmentation(clearMask: false)
             }
             reload()
@@ -589,6 +597,7 @@ struct ZoomOverlayView: View {
     private func subjectPromptChanged() {
         subjectMask = nil
         subjectSegmentationState = .idle
+        cancelSubjectMaskScan(clearProgress: true)
         guard showSubjectMask else { return }
         runSubjectSegmentation()
     }
@@ -660,6 +669,65 @@ struct ZoomOverlayView: View {
         subjectSegmentationState = .idle
         if clearMask {
             subjectMask = nil
+        }
+    }
+
+    private func startSubjectMaskScan() {
+        guard sourceSelection.selected == .embeddedJPG else {
+            subjectPrefetchProgress = nil
+            return
+        }
+        let files = orderedZoomFiles
+        guard !files.isEmpty else { return }
+
+        subjectPrefetchTask?.cancel()
+        subjectPrefetchProgress = SubjectMaskPrefetchProgress(
+            completed: 0,
+            total: files.count,
+            cached: 0,
+            generated: 0,
+            failed: 0,
+            currentFileID: files.first?.id,
+        )
+
+        let actor = subjectSegmentationActor
+        let prompt = subjectPrompt
+        subjectPrefetchTask = Task {
+            do {
+                try await actor.prefetch(
+                    files: files,
+                    prompt: prompt,
+                    imageLoader: { file in
+                        await ZoomPreviewHandler.loadExtractedJPGPreview(for: file.url)
+                    },
+                    progress: { progress in
+                        await MainActor.run {
+                            subjectPrefetchProgress = progress
+                        }
+                    },
+                )
+                guard !Task.isCancelled else { return }
+                await MainActor.run {
+                    subjectPrefetchTask = nil
+                    if showSubjectMask, subjectPrompt == prompt {
+                        subjectMask = nil
+                        subjectSegmentationState = .idle
+                        runSubjectSegmentation()
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    subjectPrefetchTask = nil
+                }
+            }
+        }
+    }
+
+    private func cancelSubjectMaskScan(clearProgress: Bool) {
+        subjectPrefetchTask?.cancel()
+        subjectPrefetchTask = nil
+        if clearProgress {
+            subjectPrefetchProgress = nil
         }
     }
 

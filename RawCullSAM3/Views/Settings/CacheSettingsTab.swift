@@ -15,8 +15,10 @@ struct CacheSettingsTab: View {
 
     @State private var showPruneConfirmation = false
     @State private var showPruneJPGConfirmation = false
+    @State private var showPruneSAM3Confirmation = false
     @State private var currentDiskCacheSize: Int = 0
     @State private var currentFullSizeJPGCacheSize: Int = 0
+    @State private var currentSAM3MaskCacheSize: Int = 0
     @State private var currentGridCacheSize: Int = 0
     @State private var currentGridCacheCount: Int = 0
     @State private var currentMemCacheSize: Int = 0
@@ -24,6 +26,7 @@ struct CacheSettingsTab: View {
     @State private var isLoadingDiskCacheSize = false
     @State private var isPruningDiskCache = false
     @State private var isPruningJPGCache = false
+    @State private var isPruningSAM3Cache = false
 
     @State private var memoryModel = MemoryViewModel()
 
@@ -72,6 +75,7 @@ struct CacheSettingsTab: View {
             HStack {
                 clearDiskCacheButton
                 clearJPGCacheButton
+                clearSAM3CacheButton
             }
             .onAppear(perform: refreshDiskCacheSize)
             .task {
@@ -136,6 +140,12 @@ struct CacheSettingsTab: View {
                 icon: "photo",
                 title: "Full-size JPG cache:",
                 value: formatBytes(currentFullSizeJPGCacheSize),
+            )
+
+            cacheUseRow(
+                icon: "sparkles.square.on.square",
+                title: "SAM 3 mask cache:",
+                value: formatBytes(currentSAM3MaskCacheSize),
             )
 
             cacheUseRow(
@@ -206,6 +216,31 @@ struct CacheSettingsTab: View {
         )
     }
 
+    private var clearSAM3CacheButton: some View {
+        Button(
+            action: { showPruneSAM3Confirmation = true },
+            label: {
+                Label(isPruningSAM3Cache ? "Clearing..." : "Clear SAM Cache", systemImage: "trash")
+                    .font(.system(size: 12, weight: .medium))
+            },
+        )
+        .disabled(isPruningSAM3Cache)
+        .buttonStyle(RefinedGlassButtonStyle())
+        .confirmationDialog(
+            "Clear SAM 3 Cache",
+            isPresented: $showPruneSAM3Confirmation,
+            actions: {
+                Button("Clear", role: .destructive) {
+                    pruneSAM3Cache()
+                }
+                Button("Cancel", role: .cancel) {}
+            },
+            message: {
+                Text("Are you sure you want to clear the SAM 3 mask cache?")
+            },
+        )
+    }
+
     private func limitRow(icon: String, title: String, value: String, detail: String) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             HStack(spacing: 4) {
@@ -240,6 +275,7 @@ struct CacheSettingsTab: View {
         Task {
             let diskSize = await SharedMemoryCache.shared.getDiskCacheSize()
             let jpgSize = await SharedMemoryCache.shared.getFullSizeJPGCacheSize()
+            let sam3Size = await SharedMemoryCache.shared.getSAM3MaskCacheSize()
             let gridSize = SharedMemoryCache.shared.getGridCacheCurrentCost()
             let gridCount = SharedMemoryCache.shared.getGridCacheCount()
             let memSize = SharedMemoryCache.shared.getMemoryCacheCurrentCost()
@@ -247,6 +283,7 @@ struct CacheSettingsTab: View {
             await MainActor.run {
                 currentDiskCacheSize = diskSize
                 currentFullSizeJPGCacheSize = jpgSize
+                currentSAM3MaskCacheSize = sam3Size
                 currentGridCacheSize = gridSize
                 currentGridCacheCount = gridCount
                 currentMemCacheSize = memSize
@@ -277,6 +314,18 @@ struct CacheSettingsTab: View {
             await MainActor.run {
                 currentFullSizeJPGCacheSize = size
                 isPruningJPGCache = false
+            }
+        }
+    }
+
+    private func pruneSAM3Cache() {
+        isPruningSAM3Cache = true
+        Task {
+            await SharedMemoryCache.shared.clearSAM3MaskCache()
+            let size = await SharedMemoryCache.shared.getSAM3MaskCacheSize()
+            await MainActor.run {
+                currentSAM3MaskCacheSize = size
+                isPruningSAM3Cache = false
             }
         }
     }

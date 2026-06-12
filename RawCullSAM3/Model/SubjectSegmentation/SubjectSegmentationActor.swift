@@ -1,27 +1,32 @@
 import CoreGraphics
 import Foundation
 import ImageIO
+import RawCullCore
 import UniformTypeIdentifiers
 
 actor SubjectSegmentationActor {
     private let provider: any SubjectSegmentationProvider
     private let cache: SubjectMaskCache
+    private let diskCache: SAM3MaskDiskCache
     private let maxSide: Int
     private var activeRequestID: UUID?
 
     init(maxSide: Int = 4320) {
         provider = CoreAISAM3Provider()
         cache = SubjectMaskCache()
+        diskCache = SharedMemoryCache.shared.sam3MaskDiskCache
         self.maxSide = maxSide
     }
 
     init(
         provider: any SubjectSegmentationProvider,
         cache: SubjectMaskCache,
+        diskCache: SAM3MaskDiskCache = SAM3MaskDiskCache(),
         maxSide: Int = 4320,
     ) {
         self.provider = provider
         self.cache = cache
+        self.diskCache = diskCache
         self.maxSide = maxSide
     }
 
@@ -38,6 +43,16 @@ actor SubjectSegmentationActor {
         let key = cacheKey(fileID: fileID, fileURL: fileURL, prompt: prompt)
         if let cached = await cache.result(for: key) {
             return cached
+        }
+        if let diskResult = await diskCache.load(
+            for: fileURL,
+            fileID: fileID,
+            prompt: prompt,
+            modelVersion: provider.modelVersion,
+            inputMaxSide: maxSide,
+        ) {
+            await cache.store(diskResult, for: key)
+            return diskResult
         }
 
         let requestID = UUID()
@@ -96,7 +111,103 @@ actor SubjectSegmentationActor {
             ),
         )
         await cache.store(displayResult, for: key)
+        await diskCache.save(displayResult, for: fileURL, inputMaxSide: maxSide)
         return displayResult
+    }
+
+    func prefetch(
+        files: [FileItem],
+        prompt: SubjectSegmentationPrompt,
+        imageLoader: @escaping @Sendable (FileItem) async -> CGImage?,
+        progress: (@Sendable (SubjectMaskPrefetchProgress) async -> Void)? = nil,
+    ) async throws {
+        let total = files.count
+        var completed = 0
+        var cached = 0
+        var generated = 0
+        var failed = 0
+
+        await progress?(SubjectMaskPrefetchProgress(
+            completed: completed,
+            total: total,
+            cached: cached,
+            generated: generated,
+            failed: failed,
+            currentFileID: files.first?.id,
+        ))
+
+        for file in files {
+            try Task.checkCancellation()
+
+            let key = cacheKey(fileID: file.id, fileURL: file.url, prompt: prompt)
+            if await cache.result(for: key) != nil {
+                cached += 1
+                completed += 1
+                await progress?(SubjectMaskPrefetchProgress(
+                    completed: completed,
+                    total: total,
+                    cached: cached,
+                    generated: generated,
+                    failed: failed,
+                    currentFileID: file.id,
+                ))
+                continue
+            }
+            if let diskResult = await diskCache.load(
+                for: file.url,
+                fileID: file.id,
+                prompt: prompt,
+                modelVersion: provider.modelVersion,
+                inputMaxSide: maxSide,
+            ) {
+                await cache.store(diskResult, for: key)
+                cached += 1
+                completed += 1
+                await progress?(SubjectMaskPrefetchProgress(
+                    completed: completed,
+                    total: total,
+                    cached: cached,
+                    generated: generated,
+                    failed: failed,
+                    currentFileID: file.id,
+                ))
+                continue
+            }
+
+            guard let image = await imageLoader(file) else {
+                failed += 1
+                completed += 1
+                await progress?(SubjectMaskPrefetchProgress(
+                    completed: completed,
+                    total: total,
+                    cached: cached,
+                    generated: generated,
+                    failed: failed,
+                    currentFileID: file.id,
+                ))
+                continue
+            }
+
+            do {
+                _ = try await segment(image: image, fileID: file.id, fileURL: file.url, prompt: prompt)
+                generated += 1
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch let error as SubjectSegmentationError where error == .cancelled || error == .staleResponse {
+                throw CancellationError()
+            } catch {
+                failed += 1
+            }
+            completed += 1
+            await progress?(SubjectMaskPrefetchProgress(
+                completed: completed,
+                total: total,
+                cached: cached,
+                generated: generated,
+                failed: failed,
+                currentFileID: file.id,
+            ))
+        }
     }
 
     private func cacheKey(
@@ -104,14 +215,14 @@ actor SubjectSegmentationActor {
         fileURL: URL,
         prompt: SubjectSegmentationPrompt,
     ) -> SubjectMaskCacheKey {
-        let values = try? fileURL.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
+        let attributes = try? FileManager.default.attributesOfItem(atPath: fileURL.path)
         return SubjectMaskCacheKey(
             fileID: fileID,
             prompt: prompt,
             modelVersion: provider.modelVersion,
             inputMaxSide: maxSide,
-            fileSize: values?.fileSize.map(Int64.init),
-            modificationDate: values?.contentModificationDate,
+            fileSize: (attributes?[.size] as? NSNumber).map { $0.int64Value },
+            modificationDate: attributes?[.modificationDate] as? Date,
         )
     }
 

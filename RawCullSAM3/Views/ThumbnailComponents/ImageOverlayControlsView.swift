@@ -24,6 +24,10 @@ struct ImageOverlayControlsView: View {
     var subjectSegmentationState: SubjectSegmentationControlState = .idle
     var onToggleSubjectMask: (() -> Void)?
     var onSubjectPromptChange: (() -> Void)?
+    var subjectScanIsRunning: Bool = false
+    var subjectScanProgress: SubjectMaskPrefetchProgress?
+    var onStartSubjectScan: (() -> Void)?
+    var onCancelSubjectScan: (() -> Void)?
 
     // MARK: - Focus points
 
@@ -104,6 +108,19 @@ struct ImageOverlayControlsView: View {
                 .transition(.opacity)
             }
 
+            if showSubjectSegmentation,
+               let onStartSubjectScan,
+               let onCancelSubjectScan {
+                SubjectMaskScanButton(
+                    isRunning: subjectScanIsRunning,
+                    progress: subjectScanProgress,
+                    density: density,
+                    onStart: onStartSubjectScan,
+                    onCancel: onCancelSubjectScan,
+                )
+                .transition(.opacity)
+            }
+
             if let onToggleInspector {
                 Button {
                     onToggleInspector()
@@ -176,5 +193,57 @@ struct ImageOverlayControlsView: View {
 
     private var zoomHorizontalPadding: CGFloat {
         density == .compact ? 7 : 12
+    }
+}
+
+private struct SubjectMaskScanButton: View {
+    let isRunning: Bool
+    let progress: SubjectMaskPrefetchProgress?
+    var density: ImageOverlayControlDensity = .regular
+    var onStart: () -> Void
+    var onCancel: () -> Void
+
+    var body: some View {
+        Button {
+            isRunning ? onCancel() : onStart()
+        } label: {
+            HStack(spacing: 5) {
+                if isRunning {
+                    ProgressView()
+                        .controlSize(.small)
+                        .fixedSize()
+                } else {
+                    Image(systemName: "sparkles.rectangle.stack")
+                        .font(density == .compact ? .body : .title3)
+                }
+                Text(labelText)
+                    .font(.caption.monospacedDigit())
+                    .lineLimit(1)
+            }
+            .padding(.horizontal, density == .compact ? 6 : 10)
+            .padding(.vertical, density == .compact ? 5 : 9)
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(isRunning ? .orange : .primary)
+        .background(.regularMaterial, in: Capsule())
+        .overlay { Capsule().strokeBorder(.primary.opacity(0.1), lineWidth: 0.5) }
+        .padding(density == .compact ? 2 : 10)
+        .help(isRunning ? "Cancel SAM cache scan" : "Scan visible Loupe images into the SAM cache")
+        .animation(.easeInOut(duration: 0.2), value: isRunning)
+        .animation(.easeInOut(duration: 0.2), value: progress)
+    }
+
+    private var labelText: String {
+        guard let progress else {
+            return isRunning ? "SAM" : "Scan SAM"
+        }
+        if isRunning || progress.completed < progress.total {
+            return "\(progress.completed)/\(progress.total)"
+        }
+        if progress.failed > 0 {
+            return "\(progress.completed)/\(progress.total), \(progress.failed) failed"
+        }
+        return "\(progress.completed)/\(progress.total)"
     }
 }

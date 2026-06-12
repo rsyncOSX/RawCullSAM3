@@ -136,14 +136,17 @@ actor SharedMemoryCache {
 
     /// Only using the memory pressure warning
     private var fileHandlers: FileHandlers?
+    private let sam3MaskCache: SAM3MaskDiskCache
 
     init(
         diskCache: DiskCacheManager? = nil,
         fullSizeJPGCache: FullSizeJPGDiskCache? = nil,
+        sam3MaskCache: SAM3MaskDiskCache? = nil,
         tracksEvictions: Bool = true,
     ) {
         self.diskCache = diskCache ?? DiskCacheManager()
         self.fullSizeJPGCache = fullSizeJPGCache ?? FullSizeJPGDiskCache()
+        self.sam3MaskCache = sam3MaskCache ?? SAM3MaskDiskCache()
         self.tracksEvictions = tracksEvictions
         // Logger.process.debugMessageOnly("SharedMemoryCache: init() complete")
     }
@@ -154,6 +157,10 @@ actor SharedMemoryCache {
     /// into the same actor for size/prune.
     nonisolated var fullSizeJPGDiskCache: FullSizeJPGDiskCache {
         fullSizeJPGCache
+    }
+
+    nonisolated var sam3MaskDiskCache: SAM3MaskDiskCache {
+        sam3MaskCache
     }
 
     func setFileHandlers(_ fileHandlers: FileHandlers) {
@@ -498,6 +505,18 @@ actor SharedMemoryCache {
         await fullSizeJPGCache.pruneCache(maxAgeInDays: maxAgeInDays)
     }
 
+    func getSAM3MaskCacheSize() async -> Int {
+        await sam3MaskCache.getDiskCacheSize()
+    }
+
+    func pruneSAM3MaskCache(maxAgeInDays: Int = 90) async {
+        await sam3MaskCache.pruneCache(maxAgeInDays: maxAgeInDays)
+    }
+
+    func clearSAM3MaskCache() async {
+        await sam3MaskCache.removeAll()
+    }
+
     func clearCaches() async {
         // let hitRate = cacheMemory + cacheDisk > 0 ? Double(cacheMemory) / Double(cacheMemory + cacheDisk) * 100 : 0
         // let hitRateStr = String(format: "%.1f", hitRate)
@@ -508,6 +527,7 @@ actor SharedMemoryCache {
 
         await diskCache.pruneCache(maxAgeInDays: 0)
         await fullSizeJPGCache.pruneCache(maxAgeInDays: 0)
+        await sam3MaskCache.removeAll()
 
         // Reset statistics
         cacheMemory = 0
