@@ -130,7 +130,6 @@ struct ZoomOverlayView: View {
     @State private var lastOffset: CGSize = .zero
     @State private var showFocusMask: Bool = false
     @State private var showSubjectMask: Bool = false
-    @State private var subjectPrompt: SubjectSegmentationPrompt = .subject
     @State private var subjectSegmentationState: SubjectSegmentationControlState = .idle
     @State private var showFocusPoints: Bool = false
     @State private var sourceSelection = ImageSourceSelectionState()
@@ -138,9 +137,6 @@ struct ZoomOverlayView: View {
     @State private var rawMessageTask: Task<Void, Never>?
     @State private var maskTask: Task<Void, Never>?
     @State private var subjectSegmentationTask: Task<Void, Never>?
-    @State private var subjectPrefetchTask: Task<Void, Never>?
-    @State private var subjectPrefetchProgress: SubjectMaskPrefetchProgress?
-    @State private var subjectSegmentationActor = SubjectSegmentationActor()
     @State private var keyMonitor: Any?
     @FocusState private var isImageFocused: Bool
 
@@ -234,18 +230,12 @@ struct ZoomOverlayView: View {
                     ImageOverlayControlsView(
                         showFocusMask: $showFocusMask,
                         focusMaskAvailable: focusMask != nil,
-                        showSubjectSegmentation: true,
+                        showSubjectSegmentation: subjectMask != nil,
                         showSubjectMask: $showSubjectMask,
-                        subjectPrompt: $subjectPrompt,
-                        subjectMaskEnabled: sourceSelection.selected == .embeddedJPG,
+                        subjectMaskEnabled: subjectMask != nil,
                         subjectMaskAvailable: subjectMask != nil,
                         subjectSegmentationState: subjectSegmentationState,
                         onToggleSubjectMask: toggleSubjectMask,
-                        onSubjectPromptChange: subjectPromptChanged,
-                        subjectScanIsRunning: subjectPrefetchTask != nil,
-                        subjectScanProgress: subjectPrefetchProgress,
-                        onStartSubjectScan: startSubjectMaskScan,
-                        onCancelSubjectScan: { cancelSubjectMaskScan(clearProgress: false) },
                         hasFocusPoints: focusPoints != nil,
                         showFocusPoints: $showFocusPoints,
                         showShortcutHints: true,
@@ -321,7 +311,6 @@ struct ZoomOverlayView: View {
             maskTask?.cancel()
             maskTask = nil
             focusMask = nil
-            cancelSubjectMaskScan(clearProgress: true)
             cancelSubjectSegmentation(clearMask: true)
             rawMessageTask?.cancel()
             rawMessageTask = nil
@@ -329,10 +318,10 @@ struct ZoomOverlayView: View {
         .onChange(of: sourceSelection.selected) { _, newSource in
             if newSource != .embeddedJPG {
                 showSubjectMask = false
-                cancelSubjectMaskScan(clearProgress: false)
                 cancelSubjectSegmentation(clearMask: false)
             }
             reload()
+            loadCachedSubjectMask()
         }
         .onChange(of: viewModel.selectedFile) { _, _ in
             guard viewModel.zoomOverlayVisible else { return }
@@ -340,12 +329,13 @@ struct ZoomOverlayView: View {
             clearRAWMessage()
             cancelSubjectSegmentation(clearMask: true)
             reload()
+            loadCachedSubjectMask()
         }
         .task(id: viewModel.zoomOverlayCGImage?.hashValue) {
             try? await Task.sleep(for: .milliseconds(300))
             guard !Task.isCancelled else { return }
             await regenerateMaskFromCG()
-            await regenerateSubjectMaskIfNeeded()
+            loadCachedSubjectMask()
         }
         .onChange(of: viewModel.sharpnessModel.effectiveFocusConfig) { _, _ in
             maskTask?.cancel()
@@ -577,87 +567,32 @@ struct ZoomOverlayView: View {
     // MARK: - Subject segmentation
 
     private func toggleSubjectMask() {
-        guard sourceSelection.selected == .embeddedJPG else {
+        guard subjectMask != nil else {
             showSubjectMask = false
-            cancelSubjectSegmentation(clearMask: false)
             return
         }
 
-        if showSubjectMask {
-            showSubjectMask = false
-            cancelSubjectSegmentation(clearMask: false)
-            return
-        }
-
-        showSubjectMask = true
-        guard subjectMask == nil else { return }
-        runSubjectSegmentation()
+        showSubjectMask.toggle()
     }
 
-    private func subjectPromptChanged() {
-        subjectMask = nil
-        subjectSegmentationState = .idle
-        cancelSubjectMaskScan(clearProgress: true)
-        guard showSubjectMask else { return }
-        runSubjectSegmentation()
-    }
-
-    private func regenerateSubjectMaskIfNeeded() async {
-        guard showSubjectMask,
-              sourceSelection.selected == .embeddedJPG
-        else { return }
-        await MainActor.run {
-            subjectMask = nil
-            subjectSegmentationState = .idle
-            runSubjectSegmentation()
-        }
-    }
-
-    private func runSubjectSegmentation() {
-        guard sourceSelection.selected == .embeddedJPG else {
-            showSubjectMask = false
-            subjectSegmentationState = .idle
-            return
-        }
-        guard let cg = viewModel.zoomOverlayCGImage,
-              let selectedFile = viewModel.selectedFile
-        else {
-            subjectSegmentationState = .failed("Core AI needs embedded JPEG")
-            return
-        }
-
+    private func loadCachedSubjectMask() {
         subjectSegmentationTask?.cancel()
-        subjectSegmentationState = .loading
-        let actor = subjectSegmentationActor
-        let prompt = subjectPrompt
+        subjectSegmentationTask = nil
+        subjectMask = nil
+        showSubjectMask = false
+        subjectSegmentationState = .idle
+
+        guard let selectedFile = viewModel.selectedFile,
+              viewModel.zoomOverlayCGImage != nil
+        else { return }
+
         subjectSegmentationTask = Task {
-            do {
-                let result = try await actor.segment(
-                    image: cg,
-                    fileID: selectedFile.id,
-                    fileURL: selectedFile.url,
-                    prompt: prompt,
-                )
-                guard !Task.isCancelled else { return }
-                await MainActor.run {
-                    guard viewModel.selectedFile?.id == result.fileID,
-                          subjectPrompt == result.prompt
-                    else { return }
-                    subjectMask = result.mask
-                    subjectSegmentationState = .ready(result.diagnostics)
-                }
-            } catch let error as SubjectSegmentationError {
-                guard !Task.isCancelled, error != .cancelled, error != .staleResponse else { return }
-                await MainActor.run {
-                    showSubjectMask = false
-                    subjectSegmentationState = .failed(error.displayMessage)
-                }
-            } catch {
-                guard !Task.isCancelled else { return }
-                await MainActor.run {
-                    showSubjectMask = false
-                    subjectSegmentationState = .failed("Core AI SAM3 failed")
-                }
+            let result = await SAM3SubjectMaskCacheReader.loadCachedMask(for: selectedFile)
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                guard viewModel.selectedFile?.id == selectedFile.id else { return }
+                subjectMask = result?.mask
+                subjectSegmentationState = result.map { .ready($0.diagnostics) } ?? .idle
             }
         }
     }
@@ -665,69 +600,10 @@ struct ZoomOverlayView: View {
     private func cancelSubjectSegmentation(clearMask: Bool) {
         subjectSegmentationTask?.cancel()
         subjectSegmentationTask = nil
-        Task { await subjectSegmentationActor.cancelActiveRequest() }
         subjectSegmentationState = .idle
         if clearMask {
             subjectMask = nil
-        }
-    }
-
-    private func startSubjectMaskScan() {
-        guard sourceSelection.selected == .embeddedJPG else {
-            subjectPrefetchProgress = nil
-            return
-        }
-        let files = orderedZoomFiles
-        guard !files.isEmpty else { return }
-
-        subjectPrefetchTask?.cancel()
-        subjectPrefetchProgress = SubjectMaskPrefetchProgress(
-            completed: 0,
-            total: files.count,
-            cached: 0,
-            generated: 0,
-            failed: 0,
-            currentFileID: files.first?.id,
-        )
-
-        let actor = subjectSegmentationActor
-        let prompt = subjectPrompt
-        subjectPrefetchTask = Task {
-            do {
-                try await actor.prefetch(
-                    files: files,
-                    prompt: prompt,
-                    imageLoader: { file in
-                        await ZoomPreviewHandler.loadExtractedJPGPreview(for: file.url)
-                    },
-                    progress: { progress in
-                        await MainActor.run {
-                            subjectPrefetchProgress = progress
-                        }
-                    },
-                )
-                guard !Task.isCancelled else { return }
-                await MainActor.run {
-                    subjectPrefetchTask = nil
-                    if showSubjectMask, subjectPrompt == prompt {
-                        subjectMask = nil
-                        subjectSegmentationState = .idle
-                        runSubjectSegmentation()
-                    }
-                }
-            } catch {
-                await MainActor.run {
-                    subjectPrefetchTask = nil
-                }
-            }
-        }
-    }
-
-    private func cancelSubjectMaskScan(clearProgress: Bool) {
-        subjectPrefetchTask?.cancel()
-        subjectPrefetchTask = nil
-        if clearProgress {
-            subjectPrefetchProgress = nil
+            showSubjectMask = false
         }
     }
 

@@ -196,7 +196,7 @@ struct ImageOverlayControlsView: View {
     }
 }
 
-private struct SubjectMaskScanButton: View {
+struct SubjectMaskScanButton: View {
     let isRunning: Bool
     let progress: SubjectMaskPrefetchProgress?
     var density: ImageOverlayControlDensity = .regular

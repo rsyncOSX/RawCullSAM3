@@ -67,6 +67,10 @@ struct ComparisonImagePaneView: View {
         state?.focusMask != nil
     }
 
+    private var subjectMaskAvailable: Bool {
+        state?.subjectMask != nil
+    }
+
     private var hasFocusPoints: Bool {
         focusPoints != nil
     }
@@ -90,6 +94,12 @@ struct ComparisonImagePaneView: View {
                 ImageOverlayControlsView(
                     showFocusMask: $viewportState.showFocusMask,
                     focusMaskAvailable: focusMaskAvailable,
+                    showSubjectSegmentation: subjectMaskAvailable,
+                    showSubjectMask: $viewportState.showSubjectMask,
+                    subjectMaskEnabled: subjectMaskAvailable,
+                    subjectMaskAvailable: subjectMaskAvailable,
+                    subjectSegmentationState: .idle,
+                    onToggleSubjectMask: toggleSubjectMask,
                     hasFocusPoints: hasFocusPoints,
                     showFocusPoints: $viewportState.showFocusPoints,
                     showShortcutHints: true,
@@ -259,6 +269,16 @@ struct ComparisonImagePaneView: View {
                         .transition(.opacity)
                 }
 
+                if viewportState.showSubjectMask, let subjectMask = state.subjectMask {
+                    Image(decorative: subjectMask, scale: 1.0, orientation: .up)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: size.width, height: size.height)
+                        .blendMode(.plusLighter)
+                        .opacity(0.72)
+                        .transition(.opacity)
+                }
+
                 focusPointOverlay(imageSize: CGSize(width: cgImage.width, height: cgImage.height))
             }
             .scaleEffect(viewportState.scale)
@@ -310,6 +330,15 @@ struct ComparisonImagePaneView: View {
         withAnimation(.spring()) {
             viewportState.scale > 1.0 ? resetToFit() : zoomToTarget()
         }
+    }
+
+    private func toggleSubjectMask() {
+        onSelect()
+        guard subjectMaskAvailable else {
+            viewportState.showSubjectMask = false
+            return
+        }
+        viewportState.showSubjectMask.toggle()
     }
 
     private func resetToFit() {

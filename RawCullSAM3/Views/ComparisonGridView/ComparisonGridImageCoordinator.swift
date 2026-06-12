@@ -100,6 +100,7 @@ enum ComparisonGridImageCoordinator {
             isLoading: false,
         )
         await populateFocusMask(in: &state, for: file, viewModel: viewModel)
+        await populateSubjectMask(in: &state, for: file)
         return state
     }
 
@@ -113,6 +114,14 @@ enum ComparisonGridImageCoordinator {
         state.focusMask = result.mask
         state.sharpnessBreakdown = result.breakdown
         persist(result: result, for: file.id, viewModel: viewModel)
+    }
+
+    private static func populateSubjectMask(
+        in state: inout ComparisonImageState,
+        for file: FileItem,
+    ) async {
+        guard state.cgImage != nil else { return }
+        state.subjectMask = await SAM3SubjectMaskCacheReader.loadCachedMask(for: file)?.mask
     }
 
     private static func focusResult(

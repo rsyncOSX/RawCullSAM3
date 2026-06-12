@@ -47,6 +47,13 @@ struct MainThumbnailImageView: View {
     @State private var rawMessageTask: Task<Void, Never>?
 
     @State private var showFocusPoints = false
+    @State private var subjectMask: CGImage?
+    @State private var showSubjectMask = false
+    @State private var subjectSegmentationState: SubjectSegmentationControlState = .idle
+    @State private var subjectSegmentationActor = SubjectSegmentationActor()
+    @State private var subjectPrefetchTask: Task<Void, Never>?
+    @State private var subjectPrefetchProgress: SubjectMaskPrefetchProgress?
+    @State private var subjectMaskLoadTask: Task<Void, Never>?
 
     // Focus mask state
     @State private var focusMask: NSImage?
@@ -107,6 +114,19 @@ struct MainThumbnailImageView: View {
                                     .transition(.opacity)
                             }
 
+                            if showSubjectMask, let subjectMask {
+                                Image(decorative: subjectMask, scale: 1.0, orientation: .up)
+                                    .resizable()
+                                    .scaledToFit()
+                                    .frame(width: geo.size.width, height: geo.size.height)
+                                    .scaleEffect(viewModel.scale)
+                                    .offset(viewModel.offset)
+                                    .blendMode(.plusLighter)
+                                    .opacity(0.72)
+                                    .allowsHitTesting(false)
+                                    .transition(.opacity)
+                            }
+
                             // 3️⃣ Focus points overlay
                             if showFocusPoints, let focusPoints {
                                 FocusOverlayView(
@@ -123,6 +143,14 @@ struct MainThumbnailImageView: View {
                                 // File metadata at the top where it belongs
                                 if let file {
                                     HStack(alignment: .top, spacing: 8) {
+                                        SubjectMaskScanButton(
+                                            isRunning: subjectPrefetchTask != nil,
+                                            progress: subjectPrefetchProgress,
+                                            density: .compact,
+                                            onStart: startSubjectMaskScan,
+                                            onCancel: { cancelSubjectMaskScan(clearProgress: false) },
+                                        )
+
                                         CurrentRatingBadgeView(
                                             rating: ratingDisplay(for: file),
                                             density: .compact,
@@ -149,6 +177,12 @@ struct MainThumbnailImageView: View {
                                 ImageOverlayControlsView(
                                     showFocusMask: $showFocusMask,
                                     focusMaskAvailable: currentDisplayedImage != nil,
+                                    showSubjectSegmentation: subjectMask != nil,
+                                    showSubjectMask: $showSubjectMask,
+                                    subjectMaskEnabled: subjectMask != nil,
+                                    subjectMaskAvailable: subjectMask != nil,
+                                    subjectSegmentationState: subjectSegmentationState,
+                                    onToggleSubjectMask: toggleSubjectMask,
                                     hasFocusPoints: focusPoints != nil,
                                     showFocusPoints: $showFocusPoints,
                                     showShortcutHints: true,
@@ -195,6 +229,7 @@ struct MainThumbnailImageView: View {
         .task {
             let settingsmanager = await SettingsViewModel.shared.asyncgetsettings()
             thumbnailSizePreview = settingsmanager.thumbnailSizePreview
+            reloadCachedSubjectMask()
         }
         .onChange(of: showFocusMask) { _, newValue in
             if newValue {
@@ -207,6 +242,7 @@ struct MainThumbnailImageView: View {
         }
         .onChange(of: sourceSelection.selected) { _, _ in
             resetFocusMaskImage()
+            reloadCachedSubjectMask()
             loadSelectedSourceIfNeeded()
         }
         .onChange(of: viewModel.sharpnessModel.focusMaskModel.config) { _, _ in
@@ -231,7 +267,9 @@ struct MainThumbnailImageView: View {
             sourceSelection.resetForNewImage()
             clearRAWMessage()
             resetFocusMaskState()
+            resetSubjectMaskState()
             loadSelectedSourceIfNeeded()
+            reloadCachedSubjectMask()
         }
         .onDisappear {
             maskTask?.cancel()
@@ -241,6 +279,11 @@ struct MainThumbnailImageView: View {
             sourceTask = nil
             rawMessageTask?.cancel()
             rawMessageTask = nil
+            subjectMaskLoadTask?.cancel()
+            subjectMaskLoadTask = nil
+            cancelSubjectMaskScan(clearProgress: true)
+            subjectMask = nil
+            showSubjectMask = false
             isLoadingSource = false
         }
     }
@@ -379,6 +422,7 @@ struct MainThumbnailImageView: View {
                 }
                 isLoadingSource = false
                 if showFocusMask { generateFocusMaskIfNeeded() }
+                reloadCachedSubjectMask()
             } catch is CancellationError {
                 return
             } catch {
@@ -395,6 +439,107 @@ struct MainThumbnailImageView: View {
             rating: viewModel.getRating(for: file),
             isExplicit: viewModel.taggedNamesCache.contains(file.name),
         )
+    }
+
+    // MARK: - Subject Mask
+
+    private var subjectScanFiles: [FileItem] {
+        let filtered = viewModel.filteredFiles.filter { viewModel.passesRatingFilter($0) }
+        if !filtered.isEmpty {
+            return viewModel.sharpnessModel.sortBySharpness
+                ? filtered
+                : filtered.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        }
+        if let file {
+            return [file]
+        }
+        return []
+    }
+
+    private func toggleSubjectMask() {
+        guard subjectMask != nil else {
+            showSubjectMask = false
+            return
+        }
+        showSubjectMask.toggle()
+    }
+
+    private func reloadCachedSubjectMask() {
+        subjectMaskLoadTask?.cancel()
+        subjectMaskLoadTask = nil
+        subjectMask = nil
+        subjectSegmentationState = .idle
+        showSubjectMask = false
+
+        guard let file else { return }
+        subjectMaskLoadTask = Task {
+            let result = await SAM3SubjectMaskCacheReader.loadCachedMask(for: file)
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                guard self.file?.id == file.id else { return }
+                subjectMask = result?.mask
+                subjectSegmentationState = result.map { .ready($0.diagnostics) } ?? .idle
+            }
+        }
+    }
+
+    private func startSubjectMaskScan() {
+        let files = subjectScanFiles
+        guard !files.isEmpty else { return }
+
+        subjectPrefetchTask?.cancel()
+        subjectPrefetchProgress = SubjectMaskPrefetchProgress(
+            completed: 0,
+            total: files.count,
+            cached: 0,
+            generated: 0,
+            failed: 0,
+            currentFileID: files.first?.id,
+        )
+
+        let actor = subjectSegmentationActor
+        subjectPrefetchTask = Task {
+            do {
+                try await actor.prefetch(
+                    files: files,
+                    prompt: SAM3SubjectMaskCacheReader.prompt,
+                    imageLoader: { file in
+                        await ZoomPreviewHandler.loadExtractedJPGPreview(for: file.url)
+                    },
+                    progress: { progress in
+                        await MainActor.run {
+                            subjectPrefetchProgress = progress
+                        }
+                    },
+                )
+                guard !Task.isCancelled else { return }
+                await MainActor.run {
+                    subjectPrefetchTask = nil
+                    reloadCachedSubjectMask()
+                }
+            } catch {
+                await MainActor.run {
+                    subjectPrefetchTask = nil
+                }
+            }
+        }
+    }
+
+    private func cancelSubjectMaskScan(clearProgress: Bool) {
+        subjectPrefetchTask?.cancel()
+        subjectPrefetchTask = nil
+        if clearProgress {
+            subjectPrefetchProgress = nil
+        }
+    }
+
+    private func resetSubjectMaskState() {
+        subjectMaskLoadTask?.cancel()
+        subjectMaskLoadTask = nil
+        subjectMask = nil
+        showSubjectMask = false
+        subjectSegmentationState = .idle
+        cancelSubjectMaskScan(clearProgress: true)
     }
 
     // MARK: - Regenerate Mask

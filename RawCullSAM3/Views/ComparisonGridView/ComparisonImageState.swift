@@ -6,6 +6,7 @@ struct ComparisonImageState: Identifiable {
     var cgImage: CGImage?
     var nsImage: NSImage?
     var focusMask: CGImage?
+    var subjectMask: CGImage?
     var sharpnessBreakdown: SharpnessBreakdown?
     var isLoading = false
 }
@@ -16,6 +17,7 @@ struct ComparisonViewportInteractionState: Equatable {
     var offset: CGSize = .zero
     var lastOffset: CGSize = .zero
     var showFocusMask = false
+    var showSubjectMask = false
     var showFocusPoints = false
 
     mutating func resetTransform() {
@@ -23,6 +25,7 @@ struct ComparisonViewportInteractionState: Equatable {
         lastScale = 1.0
         offset = .zero
         lastOffset = .zero
+        showSubjectMask = false
     }
 }
 

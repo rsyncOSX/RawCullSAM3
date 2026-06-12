@@ -383,3 +383,62 @@ struct SubjectSegmentationActorCacheTests {
         } catch is CancellationError {}
     }
 }
+
+struct SAM3SubjectMaskCacheReaderTests {
+    @Test
+    func `loads cached subject mask with default SAM3 cache key`() async throws {
+        let root = try makeSAM3CacheTestRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let source = try makeSAM3CacheSource(in: root)
+        let file = makeSAM3TestFileItem(url: source)
+        let diskCache = SAM3MaskDiskCache(cacheDirectory: root.appendingPathComponent("Masks", isDirectory: true))
+        let result = try makeSAM3Result(
+            fileID: file.id,
+            prompt: .subject,
+            modelVersion: SAM3SubjectMaskCacheReader.modelVersion,
+            width: 36,
+            height: 18,
+        )
+
+        await diskCache.save(result, for: source, inputMaxSide: SAM3SubjectMaskCacheReader.inputMaxSide)
+        let loaded = await SAM3SubjectMaskCacheReader.loadCachedMask(for: file, diskCache: diskCache)
+
+        #expect(loaded?.fileID == file.id)
+        #expect(loaded?.prompt == .subject)
+        #expect(loaded?.modelVersion == SAM3SubjectMaskCacheReader.modelVersion)
+        #expect(loaded?.mask.width == 36)
+        #expect(loaded?.mask.height == 18)
+    }
+
+    @Test
+    func `missing subject mask cache returns nil`() async throws {
+        let root = try makeSAM3CacheTestRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let source = try makeSAM3CacheSource(in: root)
+        let file = makeSAM3TestFileItem(url: source)
+        let diskCache = SAM3MaskDiskCache(cacheDirectory: root.appendingPathComponent("Masks", isDirectory: true))
+
+        let loaded = await SAM3SubjectMaskCacheReader.loadCachedMask(for: file, diskCache: diskCache)
+
+        #expect(loaded == nil)
+    }
+
+    @Test
+    func `wrong prompt cache does not satisfy subject mask reader`() async throws {
+        let root = try makeSAM3CacheTestRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let source = try makeSAM3CacheSource(in: root)
+        let file = makeSAM3TestFileItem(url: source)
+        let diskCache = SAM3MaskDiskCache(cacheDirectory: root.appendingPathComponent("Masks", isDirectory: true))
+        let result = try makeSAM3Result(
+            fileID: file.id,
+            prompt: .bird,
+            modelVersion: SAM3SubjectMaskCacheReader.modelVersion,
+        )
+
+        await diskCache.save(result, for: source, inputMaxSide: SAM3SubjectMaskCacheReader.inputMaxSide)
+        let loaded = await SAM3SubjectMaskCacheReader.loadCachedMask(for: file, diskCache: diskCache)
+
+        #expect(loaded == nil)
+    }
+}
