@@ -33,7 +33,7 @@ A bundled helper process (`RawCullSAM3MaskBuilder`) can pre-generate masks for a
 The SAM3 model is not bundled with the app. It lives outside the signed app bundle at:
 
 ```text
-~/Library/Application Support/RawCull/Models/SAM3
+$(HOME)/Library/Containers/no.blogspot.RawCullSAM3/Data/Library/Application Support/RawCullSAM3/Models/SAM3
 ```
 
 The model bundle must contain:

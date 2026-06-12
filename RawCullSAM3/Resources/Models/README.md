@@ -4,7 +4,7 @@ Place the local SAM3 Core AI model resource for development here, or install it
 for app/runtime use at:
 
 ```text
-~/Library/Application Support/RawCull/Models/SAM3
+$(HOME)/Library/Containers/no.blogspot.RawCullSAM3/Data/Library/Application Support/RawCullSAM3/Models/SAM3
 ```
 
 RawCull checks the Application Support install location first. Debug builds may

@@ -26,7 +26,7 @@ model bundle under `RawCullSAM3/Resources/Models/SAM3`, then install it for app
 runtime use at:
 
 ```text
-~/Library/Application Support/RawCull/Models/SAM3
+$(HOME)/Library/Containers/no.blogspot.RawCullSAM3/Data/Library/Application Support/RawCullSAM3/Models/SAM3
 ```
 
 The Swift runtime package expects a model-bundle directory containing
@@ -140,7 +140,7 @@ After the build finishes, `verify-release-model` checks the external model
 install location:
 
 ```text
-~/Library/Application Support/RawCull/Models/SAM3
+$(HOME)/Library/Containers/no.blogspot.RawCullSAM3/Data/Library/Application Support/RawCullSAM3/Models/SAM3
 ```
 
 Install the local development model bundle there with:
@@ -158,16 +158,16 @@ RawCullSAM3/Resources/Models/SAM3
 to:
 
 ```text
-~/Library/Application Support/RawCull/Models/SAM3
+$(HOME)/Library/Containers/no.blogspot.RawCullSAM3/Data/Library/Application Support/RawCullSAM3/Models/SAM3
 ```
 
 The verification step reads `assets.main` from the installed `metadata.json`.
 It requires:
 
 ```text
-~/Library/Application Support/RawCull/Models/SAM3/metadata.json
-~/Library/Application Support/RawCull/Models/SAM3/tokenizer/tokenizer.json
-~/Library/Application Support/RawCull/Models/SAM3/<assets.main>
+$(HOME)/Library/Containers/no.blogspot.RawCullSAM3/Data/Library/Application Support/RawCullSAM3/Models/SAM3/metadata.json
+$(HOME)/Library/Containers/no.blogspot.RawCullSAM3/Data/Library/Application Support/RawCullSAM3/Models/SAM3/tokenizer/tokenizer.json
+$(HOME)/Library/Containers/no.blogspot.RawCullSAM3/Data/Library/Application Support/RawCullSAM3/Models/SAM3/<assets.main>
 ```
 
 Use the debug build when you want faster local iteration:
