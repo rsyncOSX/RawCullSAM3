@@ -5,6 +5,24 @@ that is already integrated into RawCullSAM3. Each idea includes a complexity
 estimate, a rough timeframe, an assessment of the SAM 3 compute cost it
 introduces, and any dependency on another SAM 3 feature listed here.
 
+## 2026-06-12 Status Update
+
+RawCull now has the two foundation pieces that this document previously treated
+as future work:
+
+- **Persistent SAM 3 mask disk cache** is implemented via `SAM3MaskDiskCache`.
+  Masks are stored under `~/Library/Caches/no.blogspot.RawCull/SAM3Masks/` with
+  source-file identity metadata, so already-generated masks survive RawCull
+  restarts.
+- **Full-catalog SAM 3 mask creation** is implemented as the bundled
+  `RawCullSAM3MaskBuilder` helper process. RawCull launches the helper, the
+  helper scans the selected catalog, writes masks into the same disk cache, then
+  RawCull restarts to reclaim memory.
+
+This changes the strategic order. The first priority is no longer "how do we
+get masks?" but **how do we turn cached masks into culling signal without
+running SAM 3 again**.
+
 **Compute context.** SAM 3 inference currently takes roughly 150 ms – 1 500 ms
 per image on Apple Silicon, depending on the chip tier and whether the model
 has already been specialised on the device. The first call of a session is
@@ -12,6 +30,99 @@ always slower (model load + specialisation). Subsequent calls reuse the same
 `CoreAISegmentationEngine` instance and results are cached in `SubjectMaskCache`
 keyed on `(fileID, prompt, modelVersion, inputMaxSide)`, so the cost is paid at
 most once per image per prompt per session.
+
+With the helper and disk cache in place, the preferred architecture for any
+feature below is:
+
+```text
+Create masks once in RawCullSAM3MaskBuilder
+  -> read cached masks in RawCull
+  -> compute lightweight geometry / quality / UI signals
+  -> never invoke SAM 3 from interactive browsing unless explicitly requested
+```
+
+---
+
+## Recommended Next Wave — Turn Masks Into Culling Signals
+
+These are the most valuable next steps now that catalog-wide mask generation is
+working.
+
+### A — Mask Inventory and Coverage Metadata
+
+**What.** After opening a catalog, scan the SAM 3 disk cache and build a
+lightweight per-file mask inventory: `hasMask`, `confidence`, `coverage`,
+`boundingBox`, `centroid`, and `source freshness`.
+
+**Why.** Many downstream features need the same cheap facts. Computing them once
+prevents every view from decoding PNG masks independently.
+
+**How.** Add a `SAM3MaskCatalogIndex` actor that iterates the current
+`FileItem`s, calls `SAM3SubjectMaskCacheReader.loadCachedMask`, computes mask
+geometry, and publishes an observable dictionary keyed by `FileItem.ID`.
+
+**Complexity.** ⭐⭐ Easy-Medium  
+**Timeframe.** 2-3 days
+
+### B — Subject Quality Badge
+
+**What.** Add a compact badge to thumbnails and comparison panes showing whether
+the subject mask is strong: confidence, subject coverage, and whether the
+subject is clipped at the frame edge.
+
+**Why.** This is the first "AI assisted culling" feature users can see without
+changing scoring logic. It answers: "Did SAM 3 find a usable subject here?"
+
+**How.** Use the mask inventory. Color badge:
+
+- Green: confident subject, reasonable coverage, not clipped.
+- Amber: low coverage, low confidence, or near-edge clipping.
+- Red: no cached mask or very weak mask.
+
+**Complexity.** ⭐⭐ Easy-Medium  
+**Timeframe.** 2-4 days
+
+### C — Subject Geometry Review Queue
+
+**What.** Add a review filter for images where the subject is too small, clipped,
+off-center, or absent. This is useful before sharpness scoring: it quickly
+separates "no usable subject" frames from real candidates.
+
+**How.** Extend the rating/filter controls with a "Subject" segment:
+`All`, `Good subject`, `Weak/missing`, `Clipped`, `Small subject`.
+
+**Complexity.** ⭐⭐ Easy-Medium  
+**Timeframe.** 3-4 days
+
+### D — Subject-Weighted Sharpness
+
+**What.** Use the cached SAM 3 mask as the primary weighting region for
+sharpness scoring, instead of relying mostly on saliency/AF heuristics.
+
+**Why.** This is likely the highest-value culling improvement: the best image in
+a burst should be the one where the subject is sharp, not where the background
+or foreground has the most contrast.
+
+**How.** Feed the cached mask into `FocusMaskEngine+Scoring.swift` as an optional
+subject weight. Fall back to the existing scoring path when no mask exists.
+
+**Complexity.** ⭐⭐⭐ Medium  
+**Timeframe.** 4-7 days
+
+### E — Best-in-Burst by Subject Sharpness
+
+**What.** In burst groups, pick the winner by subject-weighted sharpness and
+subject geometry quality.
+
+**Why.** This is the practical endgame for AI-supported RawCull: automatically
+suggest the frame where the subject is present, not clipped, and sharp.
+
+**How.** Combine existing burst groups, the mask inventory, and
+subject-weighted sharpness. Keep the first version advisory: show a suggested
+winner badge before auto-rating/rejecting anything.
+
+**Complexity.** ⭐⭐⭐⭐ Medium-Hard  
+**Timeframe.** 1-2 weeks
 
 ---
 
@@ -22,15 +133,15 @@ hides images where the SAM 3 confidence score for the current prompt is below
 a chosen percentage. A photographer culling bird-in-flight frames could
 immediately discard shots where the subject is not visible or barely clipped.
 
-**How.** The `SubjectSegmentationResult.confidence` value is already stored in
-`SubjectMaskCache`. A filter pass over `filteredFiles` checks the cached
-confidence; images without a cached result for the current prompt are shown by
-default (no on-demand inference required just to filter).
+**How.** Use the mask inventory from **A** rather than querying the model or
+decoding masks per view refresh. A filter pass over `filteredFiles` checks the
+cached confidence and geometry; images without a cached result for the current
+prompt can be shown by default or grouped under "missing mask".
 
 **Compute impact.** Zero additional SAM 3 calls beyond what the cache already
 holds. Filtering itself is CPU-only and instantaneous.
 
-**Depends on.** Nothing — works with the existing on-demand mask flow.
+**Depends on.** **A** for fast per-file confidence and geometry metadata.
 
 **Complexity.** ⭐ Easy  
 **Timeframe.** 1–2 days
@@ -44,15 +155,15 @@ mask has been computed and cached for that image (similar to the sharpness score
 badge). The badge could show the confidence percentage and use green / amber /
 red colouring to give an at-a-glance subject-quality signal.
 
-**How.** `SubjectMaskCache` is actor-isolated. Expose a lightweight read method
-(or a `@Observable` wrapper) that the `GridThumbnailViewModel` can query without
-triggering inference. Badges appear incrementally as results arrive.
+**How.** Let `GridThumbnailViewModel` read published mask inventory state rather
+than calling the segmentation actor. Badges appear incrementally as the catalog
+index loads cached masks.
 
 **Compute impact.** No additional SAM 3 calls. Badges are driven by already-cached
 results.
 
-**Depends on.** Nothing beyond the existing on-demand mask flow, but becomes far
-more useful if combined with **idea 4** (batch prefetch).
+**Depends on.** Best implemented through the mask inventory in **A**, with masks
+created by the helper in **idea 4**.
 
 **Complexity.** ⭐ Easy  
 **Timeframe.** 1–2 days
@@ -75,37 +186,45 @@ score in `CullingScoringResult`.
 per image at full resolution. SAM 3 itself is not re-run; results come from the
 cache.
 
-**Depends on.** Nothing, but the bounding box is most useful if **idea 4** has
-already pre-populated the cache.
+**Depends on.** Best implemented through the mask inventory in **A**, because
+bounding box extraction is a shared geometry calculation.
 
 **Complexity.** ⭐⭐ Easy–Medium  
 **Timeframe.** 2–3 days
 
 ---
 
-## 4 — Background Batch Prefetch (Cache Warming)
+## 4 — Helper-Based Catalog Mask Creation
 
-**What.** When the user selects a prompt (or opens a catalog), kick off a
-background task that runs SAM 3 on every image in the catalog sequentially,
-filling `SubjectMaskCache`. Subsequent operations — filter, badge display,
-sharpness weighting, histogram — can then consume cached results instantly.
+**Status.** Implemented foundation.
 
-**How.** A new `SubjectSegmentationActor.prefetchAll(files:prompt:)` method
-iterates the file list, skipping already-cached entries and obeying Swift
-cooperative cancellation. The `RawCullViewModel` starts this task after
-indexing completes (or when the prompt picker changes). A progress indicator
-mirrors the existing sharpness-scoring progress UI.
+**What.** RawCull can launch the bundled `RawCullSAM3MaskBuilder` helper process
+to scan the selected catalog and create SAM 3 masks outside the main app
+process. The helper writes directly into the same `SAM3MaskDiskCache` format
+that RawCull reads. When the helper finishes successfully, RawCull restarts so
+memory returns to a clean process baseline.
 
-**Compute impact.** This is the highest-compute enhancement on the list. Running
-SAM 3 on 500 images at 300 ms each = ~2.5 minutes wall time. The task runs at
-`.background` priority so it does not compete with UI rendering. Users with many
-images should be warned the first time. Already-cached images cost nothing.
+**How.** RawCull owns the UI and launches the helper with a JSON request
+containing the catalog bookmark, model resource path, cache directory, and
+RawCull app path. The helper reports newline-delimited JSON progress events over
+stdout. RawCull displays a compact blocking progress overlay and can terminate
+the helper on cancel.
 
-**Depends on.** Nothing. It is a prerequisite for all the ideas below that
-reference "cached SAM 3 result" to be cheap at use time.
+**Compute impact.** Full catalog × 1 prompt, but the expensive work happens in a
+separate process. Already-cached images are skipped, and the resulting masks are
+reused across RawCull launches.
 
-**Complexity.** ⭐⭐ Easy–Medium  
-**Timeframe.** 2–4 days
+**Depends on.** The persistent disk cache, which is also implemented.
+
+**Complexity.** Implemented  
+**Timeframe.** Implemented
+
+**Future refinements.**
+- Add "current filter only" and "selected files only" helper modes.
+- Persist failed-file details so the progress UI can show exactly which files
+  did not produce masks.
+- Allow the helper to resume only missing/stale masks without rescanning all
+  files when the catalog is very large.
 
 ---
 
@@ -125,9 +244,9 @@ is already at display resolution.
 vDSP operation — single-digit milliseconds. No extra SAM 3 inference if the
 mask is cached.
 
-**Depends on.** **Idea 4** (batch prefetch) for the mask to be immediately
-available when the histogram view opens; or on-demand mask fetch with a loading
-state while SAM 3 runs.
+**Depends on.** **A** for immediate mask geometry and cache lookup. If no mask
+exists, the UI can show a missing-mask state rather than launching SAM 3 during
+histogram rendering.
 
 **Complexity.** ⭐⭐⭐ Medium  
 **Timeframe.** 3–5 days
@@ -152,8 +271,8 @@ number of prompts (currently 6). On a fast chip that is ~900 ms – 9 000 ms per
 image. Restrict to a single background task at `.low` priority, or run only on
 the current burst group rather than the entire catalog.
 
-**Depends on.** Nothing structurally, but it becomes far more practical when
-combined with **idea 4** (prompts are pipelined in the same background pass).
+**Depends on.** Nothing structurally, but it should be a later helper mode
+because it multiplies helper work by the number of prompts.
 
 **Complexity.** ⭐⭐⭐ Medium  
 **Timeframe.** 4–6 days
@@ -174,13 +293,11 @@ it and multiply the gradient map by the mask's alpha channel (normalised to
 `0–1`) before computing the aggregate score. Fall back to the existing AF-guided
 or saliency-guided region when no mask is available.
 
-**Compute impact.** One SAM 3 inference per image if not already cached — adds
-300 ms – 1 500 ms per image to the sharpness scoring pass. With **idea 4** in
-place the cost drops to a few milliseconds (mask read from cache + Metal
-multiply).
+**Compute impact.** With helper-created masks, the scoring pass only pays for a
+mask read plus a Metal/Accelerate weighting step. If no mask exists, fall back to
+the existing sharpness path instead of launching SAM 3 during scoring.
 
-**Depends on.** **Idea 4** (batch prefetch) for acceptable scoring performance.
-Without prefetch, sharpness scoring becomes significantly slower.
+**Depends on.** **A** for cheap mask lookup and geometry metadata.
 
 **Complexity.** ⭐⭐⭐ Medium  
 **Timeframe.** 4–7 days
@@ -197,19 +314,19 @@ of a bird and a person would score as very different, without needing the
 saliency mismatch penalty heuristic.
 
 **How.** In `SimilarityScoringModel.computeEmbedding(url:maxPixelSize:)`, after
-decoding the thumbnail, check whether a cached SAM 3 mask is available (via a
-shared `SubjectMaskCache` reference). If so, composite the thumbnail over a
-black background using the mask, then compute the feature print on the
-masked image.
+decoding the thumbnail, check whether a cached SAM 3 mask is available through
+the mask inventory/cache-reader path. If so, composite the thumbnail over a
+black background using the mask, then compute the feature print on the masked
+image.
 
 **Compute impact.** If the mask is already cached the added cost is one
 compositing pass in CoreImage (~5 ms). Without the cache this forces a SAM 3
 inference per image during the similarity indexing pass, adding 300 ms – 1 500 ms
 per image.
 
-**Depends on.** **Idea 4** (batch prefetch) for the masks to be available during
-similarity indexing without triggering live inference; **idea 6**
-(auto-classification) to determine which prompt produced the authoritative mask.
+**Depends on.** **A** for mask lookup during similarity indexing; **idea 6**
+(auto-classification) only if RawCull needs to decide between multiple prompt
+types automatically.
 
 **Complexity.** ⭐⭐⭐⭐ Medium–Hard  
 **Timeframe.** 5–8 days
@@ -260,9 +377,9 @@ mask-display workflow). The Metal blur pass runs entirely on the GPU and adds
 < 10 ms per frame. The render is static (not real-time video), so cost is
 negligible after the mask is ready.
 
-**Depends on.** The standard on-demand SAM 3 mask. Optionally benefits from
-**idea 4** (batch prefetch) so the blur effect appears immediately when the
-zoom view opens.
+**Depends on.** **A** for instant cache-backed masks. The existing on-demand
+mask view can remain as a fallback for files that have not been processed by the
+helper yet.
 
 **Complexity.** ⭐⭐⭐⭐ Medium–Hard  
 **Timeframe.** 5–10 days
@@ -284,14 +401,15 @@ picks the sharpest, in-focus frame of the subject from each burst.
 4. Return the best-scored frame per group.
 5. Optionally apply a star rating to winners and reject losers.
 
-**Compute impact.** The heaviest feature on this list if run without cached
-results. For a 500-image catalog with 10-shot bursts, that is 500 SAM 3
-inferences + 500 sharpness passes. With **ideas 4 and 7** already in place
-the incremental cost is just the group aggregation logic — essentially free.
+**Compute impact.** With helper-created masks and subject-weighted sharpness
+already cached, the incremental cost is just group aggregation. If masks are
+missing, skip those files or mark the group as incomplete rather than launching
+bulk SAM 3 inference from the main app.
 
-**Depends on.** **Idea 4** (batch prefetch), **idea 7** (subject-weighted
-sharpness), and the existing burst grouping in `SimilarityScoringModel`. This
-is the most dependent feature on the list and should be implemented last.
+**Depends on.** **A** (mask inventory), **idea 7** (subject-weighted sharpness),
+and the existing burst grouping in `SimilarityScoringModel`. This is the most
+dependent feature on the list and should be implemented after the advisory
+signals prove useful.
 
 **Complexity.** ⭐⭐⭐⭐⭐ Hard  
 **Timeframe.** 2–4 weeks (including integration testing across burst edge cases)
@@ -300,46 +418,54 @@ is the most dependent feature on the list and should be implemented last.
 
 ## Dependency Graph
 
-```
-Idea 12 (Persistent Disk Mask Cache)  ← cross-session multiplier
-├── All ideas that reference "cached SAM 3 result" are instant even on
-│   first open of a previously processed catalog
-└── Idea 4 (Batch Prefetch) — still valuable; writes into disk cache
-    ├── Idea 2 (Grid Badges)         — benefits from cache, not required
-    ├── Idea 1 (Confidence Filter)   — benefits from cache, not required
-    ├── Idea 3 (Sidecar Export)      — benefits from cache, not required
-    ├── Idea 5 (Masked Histogram)    — required for instant UX
-    ├── Idea 6 (Auto-Classification) — not required but practical
-    ├── Idea 7 (Subject-Weighted Sharpness)  — required for fast scoring
-    │   └── Idea 11 (Best-in-Burst)          — requires idea 7
-    ├── Idea 8 (Masked Similarity)           — requires idea 4 & idea 6
-    │   └── Idea 11 (Best-in-Burst)          — requires idea 8 (optional)
-    └── Idea 10 (Background Blur)  — benefits from cache, not required
+```text
+Implemented foundation
+├── Idea 12 (Persistent Disk Mask Cache)
+└── Idea 4 (Helper-Based Catalog Mask Creation)
 
-Idea 9 (Smart Crop) — independent, only needs on-demand mask
-Idea 3 (Sidecar Export) — can share bounding-box logic with Idea 9
+Next-wave mask inventory
+├── A (Mask Inventory and Coverage Metadata)
+│   ├── B / Idea 2 (Subject Quality Badge)
+│   ├── C / Idea 1 (Subject Review Filters)
+│   ├── Idea 3 (Sidecar Bounding Box Export)
+│   ├── Idea 5 (Masked Histogram)
+│   ├── Idea 9 (Smart Crop Suggestions)
+│   └── Idea 10 (Background Isolation Effects)
+└── D / Idea 7 (Subject-Weighted Sharpness)
+    └── E / Idea 11 (Best-in-Burst Subject Pick)
+
+Idea 6 (Auto-Classification) is optional and expensive because it runs multiple
+prompts per image. It should wait until single-prompt mask usage is clearly
+valuable.
+
+Idea 8 (Subject-Masked Similarity) is powerful but touches indexing behavior.
+It should come after mask inventory and subject-weighted sharpness are stable.
 ```
 
 ---
 
 ## Summary Table
 
-| # | Feature | Complexity | Timeframe | Extra SAM 3 cost | Depends on |
-|---|---------|-----------|-----------|-----------------|-----------|
-| 1 | Confidence Filter | ⭐ Easy | 1–2 days | None (cache only) | — |
-| 2 | Grid Badges | ⭐ Easy | 1–2 days | None (cache only) | — |
-| 3 | Sidecar BBox Export | ⭐⭐ Easy–Medium | 2–3 days | None (cache only) | — |
-| 4 | Batch Prefetch | ⭐⭐ Easy–Medium | 2–4 days | Full catalog × 1 prompt | — |
-| 5 | Masked Histogram | ⭐⭐⭐ Medium | 3–5 days | None w/ cache | #4 |
-| 6 | Auto-Classification | ⭐⭐⭐ Medium | 4–6 days | Full catalog × N prompts | #4 |
-| 7 | Subject-Weighted Sharpness | ⭐⭐⭐ Medium | 4–7 days | None w/ cache | #4 |
-| 8 | Masked Similarity | ⭐⭐⭐⭐ Medium–Hard | 5–8 days | None w/ cache | #4, #6 |
-| 9 | Smart Crop Suggestion | ⭐⭐⭐⭐ Medium–Hard | 5–10 days | None (on-demand mask) | — |
-| 10 | Background Blur | ⭐⭐⭐⭐ Medium–Hard | 5–10 days | None (on-demand mask) | — |
-| 11 | Best-in-Burst Subject Pick | ⭐⭐⭐⭐⭐ Hard | 2–4 weeks | None w/ cache | #4, #7 |
-| 12 | Persistent Disk Mask Cache | ⭐⭐ Easy–Medium | 2–4 days | None (eliminates re-inference) | — |
+| # | Feature | Status | Complexity | Timeframe | Extra SAM 3 cost | Depends on |
+|---|---------|--------|-----------|-----------|-----------------|-----------|
+| A | Mask Inventory / Coverage Metadata | Proposed next | ⭐⭐ Easy–Medium | 2–3 days | None (cache only) | #12 |
+| B / 2 | Subject Quality Badge | Proposed next | ⭐⭐ Easy–Medium | 2–4 days | None (cache only) | A |
+| C / 1 | Subject Review Filters | Proposed next | ⭐⭐ Easy–Medium | 3–4 days | None (cache only) | A |
+| 3 | Sidecar BBox Export | Proposed | ⭐⭐ Easy–Medium | 2–3 days | None (cache only) | A |
+| 4 | Helper Catalog Mask Creation | Implemented | — | — | Full catalog × 1 prompt | #12 |
+| 5 | Masked Histogram | Proposed | ⭐⭐⭐ Medium | 3–5 days | None w/ cache | A |
+| 6 | Auto-Classification | Later | ⭐⭐⭐ Medium | 4–6 days | Full catalog × N prompts | #4 |
+| D / 7 | Subject-Weighted Sharpness | Proposed next | ⭐⭐⭐ Medium | 4–7 days | None w/ cache | A |
+| 8 | Masked Similarity | Later | ⭐⭐⭐⭐ Medium–Hard | 5–8 days | None w/ cache | A, #6 optional |
+| 9 | Smart Crop Suggestion | Proposed | ⭐⭐⭐⭐ Medium–Hard | 5–10 days | None w/ cache | A |
+| 10 | Background Blur | Proposed | ⭐⭐⭐⭐ Medium–Hard | 5–10 days | None w/ cache | A |
+| E / 11 | Best-in-Burst Subject Pick | Later | ⭐⭐⭐⭐ Medium–Hard | 1–2 weeks | None w/ cache | A, D |
+| 12 | Persistent Disk Mask Cache | Implemented | — | — | None (eliminates re-inference) | — |
 
-**Recommended build order**: 12 → 1 → 2 → 4 → 3 → 5 → 7 → 6 → 9 → 10 → 8 → 11
+**Recommended build order**: A → B → C → D → E. After those are useful in
+daily culling, add 3, 5, 9, and 10 as supporting features. Leave 6 and 8 until
+the single-prompt workflow has proven its value, because they are broader and
+more expensive changes.
 
 ---
 
@@ -347,58 +473,49 @@ Idea 3 (Sidecar Export) — can share bounding-box logic with Idea 9
 
 SAM 3's primary and most important function is **producing subject masks** — binary or alpha-channel images that tell every other part of the app which pixels belong to the subject and which belong to the background. Everything else in this document (filtering, histograms, sharpness scoring, similarity search, crop suggestions) is downstream of that mask. The mask is the result; SAM 3 inference is the cost paid to obtain it.
 
-This leads directly to a strategic observation: because the mask is the *output* and inference is the *cost*, any scheme that eliminates redundant inference multiplies the value of all downstream features. The in-session `SubjectMaskCache` already does this within one app launch. The missing piece is a **persistent disk cache** that survives across launches (idea 12 below).
+This leads directly to a strategic observation: because the mask is the *output*
+and inference is the *cost*, any scheme that eliminates redundant inference
+multiplies the value of all downstream features. RawCull now has both layers:
+the in-session `SubjectMaskCache` for fast reuse during one launch, and the
+persistent `SAM3MaskDiskCache` for reuse across launches. That means the next
+features should treat masks as durable catalog data, not temporary UI state.
 
 ---
 
 ## 12 — Persistent On-Disk SAM 3 Mask Cache
 
-**What.** Extend the mask caching layer to write each computed mask to disk
-(inside `~/Library/Caches/no.blogspot.RawCull/SAM3Masks/`) alongside a small
-JSON sidecar that records the prompt, confidence, model version, and the source
-file's size and modification date. On subsequent app launches — or when any
-AI-powered feature needs a mask for a previously processed image — the mask is
-read from disk in milliseconds rather than re-running SAM 3 inference. Combined
-with **idea 4** (batch prefetch), the second and all subsequent catalog opens
-become effectively instant from the AI perspective.
+**Status.** Implemented foundation.
 
-**Why this matters beyond idea 4.** Idea 4 (batch prefetch) warms the
-*session-local* `SubjectMaskCache` by running SAM 3 in the background. It still
-costs one full inference pass every time the app relaunches. Idea 12 makes
-*every* future launch free for images whose masks are already on disk. The
-relationship is: idea 4 fills the disk cache once; idea 12 makes that investment
-permanent until the source file changes or the cache is pruned.
+**What.** Each computed mask is written to disk inside
+`~/Library/Caches/no.blogspot.RawCull/SAM3Masks/` with metadata for the prompt,
+confidence, model version, input size, and source-file identity. On subsequent
+launches, RawCull can read the mask from disk in milliseconds instead of
+re-running SAM 3 inference.
 
-**How.** Introduce a new actor `SAM3MaskDiskCache` that follows the existing
-pattern of `FullSizeJPGDiskCache` and `DiskCacheManager`:
+**Why this matters beyond idea 4.** The helper process fills the disk cache once;
+the disk cache makes that investment permanent until the source file changes or
+the entry is pruned. This is what makes the new feature direction practical:
+filters, badges, sharpness, histograms, crops, and burst suggestions can all be
+computed from cached masks without waking the model.
 
-1. **Cache filename:** MD5 of the string
-   `"v1-sam3mask:<sourceURL.standardized.path>:<prompt.rawValue>:<modelVersion>:<inputMaxSide>"`.
-   Appended extensions: `.png` for the mask image, `.json` for the metadata
-   sidecar — or optionally embed metadata in the PNG's `iTXt` chunk to keep the
-   cache as single-file-per-entry.
+**How it works.** `SAM3MaskDiskCache` follows the same broad pattern as the
+other RawCull disk caches:
 
-2. **On inference completion** (`SubjectSegmentationActor.segment(...)`):
-   after storing the result in the in-memory `SubjectMaskCache`, serialise the
-   mask `CGImage` to lossless **PNG** (not JPEG — the mask is a smooth alpha
-   channel and JPEG artefacts would corrupt edge precision) and write it at
-   `.background` priority. The JSON sidecar records `confidence`, `prompt`,
-   `modelVersion`, `inputMaxSide`, `fileSize`, and `modificationDate`.
+1. **Cache key:** based on the source file identity, prompt, model version, and
+   input max side so existing cached masks remain compatible with RawCull and
+   helper-created masks are immediately readable after restart.
 
-3. **On cache lookup** (before launching inference): check in-memory cache first
-   (as today), then check disk. If the disk entry exists and the source file's
-   current `fileSize` and `modificationDate` match the sidecar, reconstruct the
-   `SubjectSegmentationResult` from disk and populate the in-memory cache. No
-   inference needed.
+2. **On inference completion:** the mask is encoded losslessly, written to the
+   cache, and paired with source-file metadata.
 
-4. **Staleness detection:** if the source file has been modified (different size
-   or date), the disk entry is silently ignored and new inference runs, overwriting
-   the stale entry.
+3. **On cache lookup:** RawCull checks disk before launching inference. If the
+   disk entry is valid, the mask is reconstructed and can be used immediately.
 
-5. **Pruning and size management:** reuse the existing `pruneCache(maxAgeInDays:)`
-   pattern. Default TTL: 90 days (masks are cheap to store; re-inference is
-   expensive). Expose disk-cache size and a "Clear SAM 3 mask cache" button in
-   the existing `CacheSettingsTab`.
+4. **Staleness detection:** if the source file has changed, the entry is ignored
+   and a fresh mask can be generated.
+
+5. **Size management:** the cache can participate in the same pruning and
+   removal flows as the other RawCull caches.
 
 **Storage cost.** A SAM 3 mask at typical output resolution (e.g. 1 000 × 667 px
 single-channel) compresses to roughly 5–30 KB as a lossless PNG (smooth alpha
@@ -409,18 +526,16 @@ cache and negligible on any modern Mac.
 **Compute impact.** PNG encoding of a mask is a single CPU pass — a few
 milliseconds at most. The disk write happens at background priority and does not
 block the UI. All downstream features (ideas 1–11) that currently state "None
-w/ cache" or "requires idea 4" gain an additional benefit: the cache is populated
-even before a batch-prefetch has had time to run.
+w/ cache" gain an additional benefit: the cache can be populated by the helper
+before the user starts browsing or scoring the catalog.
 
 **Integration points.**
-- `SubjectSegmentationActor` gains a reference to `SAM3MaskDiskCache` alongside
-  the existing `SubjectMaskCache`.
-- `CacheSettingsTab` gains a new row showing SAM 3 mask cache size.
-- The same `pruneCache` and `removeAll` plumbing used by `DiskCacheManager` is
-  reused verbatim.
+- `SubjectSegmentationActor` writes masks after successful inference.
+- `SAM3SubjectMaskCacheReader` gives RawCull and tests a compatible read path.
+- `RawCullSAM3MaskBuilder` writes the same cache entries as the main app.
 
-**Depends on.** Nothing. Works independently of all other ideas, but acts as a
-force-multiplier for every idea that consumes a cached mask.
+**Depends on.** Nothing. It is the base layer for every idea that consumes a
+cached mask.
 
-**Complexity.** ⭐⭐ Easy–Medium  
-**Timeframe.** 2–4 days
+**Complexity.** Implemented  
+**Timeframe.** Implemented
