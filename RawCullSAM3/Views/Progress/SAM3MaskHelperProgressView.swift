@@ -17,7 +17,7 @@ struct SAM3MaskHelperProgressView: View {
 
                 Spacer(minLength: 12)
 
-                Button("Cancel", action: onCancel)
+                Button(cancelTitle, action: onCancel)
                     .disabled(isCompleted)
             }
 
@@ -61,9 +61,18 @@ struct SAM3MaskHelperProgressView: View {
         statusText == "Completed: restarting RawCull"
     }
 
+    private var cancelTitle: String {
+        isTerminalError ? "Dismiss" : "Cancel"
+    }
+
+    private var isTerminalError: Bool {
+        statusText.hasPrefix("Could not start") ||
+            statusText.hasPrefix("SAM3 mask helper exited") ||
+            statusText.hasSuffix("failed.")
+    }
+
     private var fractionCompleted: Double? {
         guard let progress, progress.total > 0 else { return nil }
         return Double(progress.completed) / Double(progress.total)
     }
 }
-

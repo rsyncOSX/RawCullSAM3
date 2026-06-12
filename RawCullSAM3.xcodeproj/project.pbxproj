@@ -53,6 +53,7 @@
 		E97E975C2F210EAB001A4239 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		E97E975D2F210EAB001A4239 /* RawCullicon.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon; path = RawCullicon.icon; sourceTree = "<group>"; };
 		E97E975E2F210EAB001A4239 /* RawCullSAM3.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = RawCullSAM3.entitlements; sourceTree = "<group>"; };
+		A00000000000000000000014 /* RawCullSAM3MaskBuilder.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = RawCullSAM3MaskBuilder.entitlements; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -116,6 +117,7 @@
 				E97E975C2F210EAB001A4239 /* Assets.xcassets */,
 				E97E975D2F210EAB001A4239 /* RawCullicon.icon */,
 				E97E975E2F210EAB001A4239 /* RawCullSAM3.entitlements */,
+				A00000000000000000000014 /* RawCullSAM3MaskBuilder.entitlements */,
 				E90B07A42F1E58EA00A95D4A /* RawCullSAM3 */,
 				76194C2A2AF449BFAD9801B9 /* RawCullSAM3Tests */,
 				E90B07A32F1E58EA00A95D4A /* Products */,
@@ -348,14 +350,14 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CLANG_ENABLE_MODULES = YES;
-				CODE_SIGN_ENTITLEMENTS = RawCullSAM3.entitlements;
+				CODE_SIGN_ENTITLEMENTS = RawCullSAM3MaskBuilder.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 110;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = 93M47F4H9T;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
-				ENABLE_USER_SELECTED_FILES = readwrite;
+				ENABLE_USER_SELECTED_FILES = NO;
 				EXCLUDED_SOURCE_FILE_NAMES = Kernels.ci.metal;
 				GENERATE_INFOPLIST_FILE = NO;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -382,14 +384,14 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CLANG_ENABLE_MODULES = YES;
-				CODE_SIGN_ENTITLEMENTS = RawCullSAM3.entitlements;
+				CODE_SIGN_ENTITLEMENTS = RawCullSAM3MaskBuilder.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 110;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = 93M47F4H9T;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
-				ENABLE_USER_SELECTED_FILES = readwrite;
+				ENABLE_USER_SELECTED_FILES = NO;
 				EXCLUDED_SOURCE_FILE_NAMES = Kernels.ci.metal;
 				GENERATE_INFOPLIST_FILE = NO;
 				LD_RUNPATH_SEARCH_PATHS = (

@@ -8,6 +8,7 @@ final class SAM3MaskHelperController {
     private var errorPipe: Pipe?
     private var requestURL: URL?
     private var outputBuffer = Data()
+    private var errorBuffer = Data()
     private let decoder = JSONDecoder()
 
     var isRunning: Bool {
@@ -17,7 +18,7 @@ final class SAM3MaskHelperController {
     func start(
         catalogURL: URL,
         onEvent: @escaping @MainActor (SAM3MaskBuildEvent) -> Void,
-        onExit: @escaping @MainActor (Int32) -> Void,
+        onExit: @escaping @MainActor (Int32, String?) -> Void,
     ) throws {
         cancel()
 
@@ -40,13 +41,28 @@ final class SAM3MaskHelperController {
             }
         }
 
+        errorPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
+            let data = handle.availableData
+            guard !data.isEmpty else { return }
+            Task { @MainActor in
+                self?.errorBuffer.append(data)
+            }
+        }
+
         process.terminationHandler = { [weak self] process in
             Task { @MainActor in
                 self?.finish(exitCode: process.terminationStatus, onExit: onExit)
             }
         }
 
-        try process.run()
+        do {
+            try process.run()
+        } catch {
+            outputPipe.fileHandleForReading.readabilityHandler = nil
+            errorPipe.fileHandleForReading.readabilityHandler = nil
+            try? FileManager.default.removeItem(at: requestURL)
+            throw error
+        }
 
         self.process = process
         self.outputPipe = outputPipe
@@ -56,6 +72,7 @@ final class SAM3MaskHelperController {
 
     func cancel() {
         outputPipe?.fileHandleForReading.readabilityHandler = nil
+        errorPipe?.fileHandleForReading.readabilityHandler = nil
         if process?.isRunning == true {
             process?.terminate()
         }
@@ -64,6 +81,7 @@ final class SAM3MaskHelperController {
         outputPipe = nil
         errorPipe = nil
         outputBuffer.removeAll(keepingCapacity: false)
+        errorBuffer.removeAll(keepingCapacity: false)
     }
 
     private func consume(
@@ -83,15 +101,19 @@ final class SAM3MaskHelperController {
 
     private func finish(
         exitCode: Int32,
-        onExit: @escaping @MainActor (Int32) -> Void,
+        onExit: @escaping @MainActor (Int32, String?) -> Void,
     ) {
         outputPipe?.fileHandleForReading.readabilityHandler = nil
+        errorPipe?.fileHandleForReading.readabilityHandler = nil
+        let errorText = String(data: errorBuffer, encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
         cleanupRequestFile()
         process = nil
         outputPipe = nil
         errorPipe = nil
         outputBuffer.removeAll(keepingCapacity: false)
-        onExit(exitCode)
+        errorBuffer.removeAll(keepingCapacity: false)
+        onExit(exitCode, errorText?.isEmpty == false ? errorText : nil)
     }
 
     private func cleanupRequestFile() {

@@ -112,13 +112,13 @@ extension RawCullViewModel {
                 onEvent: { [weak self] event in
                     self?.handleSAM3MaskHelperEvent(event)
                 },
-                onExit: { [weak self] exitCode in
-                    self?.handleSAM3MaskHelperExit(exitCode)
+                onExit: { [weak self] exitCode, errorOutput in
+                    self?.handleSAM3MaskHelperExit(exitCode, errorOutput: errorOutput)
                 },
             )
         } catch {
-            sam3MaskCreationStatusText = error.localizedDescription
-            isCreatingSAM3Masks = false
+            sam3MaskCreationStatusText = "Could not start SAM3 mask helper: \(error.localizedDescription)"
+            isCreatingSAM3Masks = true
         }
     }
 
@@ -199,18 +199,24 @@ extension RawCullViewModel {
 
         case .failed:
             sam3MaskCreationStatusText = event.message ?? "SAM3 mask helper failed."
-            isCreatingSAM3Masks = false
+            isCreatingSAM3Masks = true
         }
     }
 
-    private func handleSAM3MaskHelperExit(_ exitCode: Int32) {
+    private func handleSAM3MaskHelperExit(_ exitCode: Int32, errorOutput: String?) {
         guard isCreatingSAM3Masks else { return }
         if sam3MaskCreationStatusText == "Completed: restarting RawCull" {
             return
         }
-        isCreatingSAM3Masks = false
         if exitCode != 0 {
-            sam3MaskCreationStatusText = "SAM3 mask helper exited with code \(exitCode)."
+            if let errorOutput, !errorOutput.isEmpty {
+                sam3MaskCreationStatusText = "SAM3 mask helper exited with code \(exitCode): \(errorOutput)"
+            } else {
+                sam3MaskCreationStatusText = "SAM3 mask helper exited with code \(exitCode)."
+            }
+            isCreatingSAM3Masks = true
+        } else {
+            isCreatingSAM3Masks = false
         }
     }
 
