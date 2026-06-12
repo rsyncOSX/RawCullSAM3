@@ -199,7 +199,7 @@ struct SubjectMaskToggleButton: View {
         if case .failed = state {
             return .orange
         }
-        return maskAvailable ? .green : .primary
+        return .primary
     }
 
     private var iconName: String {

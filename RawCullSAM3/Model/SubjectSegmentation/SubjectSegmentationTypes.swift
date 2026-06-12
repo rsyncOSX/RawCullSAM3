@@ -140,4 +140,8 @@ nonisolated struct SubjectMaskPrefetchProgress: Equatable {
     let generated: Int
     let failed: Int
     let currentFileID: UUID?
+
+    var remaining: Int {
+        max(0, total - completed)
+    }
 }

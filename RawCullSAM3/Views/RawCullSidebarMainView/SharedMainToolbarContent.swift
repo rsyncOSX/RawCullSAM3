@@ -56,7 +56,7 @@ struct SharedMainToolbarContent: ToolbarContent {
 
             ToolbarItem(placement: .status) {
                 Button(action: toggleSAM3MaskCreation) {
-                    Label(sam3ToolbarLabel, systemImage: viewModel.isCreatingSAM3Masks ? "xmark.circle" : "sparkles.rectangle.stack")
+                    sam3ToolbarButtonLabel
                 }
                 .disabled(sam3ToolbarIsDisabled)
                 .help(sam3ToolbarHelp)
@@ -158,10 +158,26 @@ struct SharedMainToolbarContent: ToolbarContent {
 
     private var sam3ToolbarLabel: String {
         if viewModel.isCreatingSAM3Masks {
-            guard let progress = viewModel.sam3MaskCreationProgress else { return "SAM3" }
-            return "SAM3 \(progress.completed)/\(progress.total)"
+            return "SAM3 \(viewModel.sam3MaskCreationProgress?.remaining ?? 0) left"
         }
         return "SAM3"
+    }
+
+    @ViewBuilder
+    private var sam3ToolbarButtonLabel: some View {
+        if viewModel.isCreatingSAM3Masks {
+            HStack(spacing: 5) {
+                ProgressView()
+                    .controlSize(.small)
+                    .fixedSize()
+
+                Text(sam3ToolbarLabel)
+                    .font(.caption.monospacedDigit())
+                    .lineLimit(1)
+            }
+        } else {
+            Label(sam3ToolbarLabel, systemImage: "sparkles.rectangle.stack")
+        }
     }
 
     private var sam3ToolbarHelp: String {

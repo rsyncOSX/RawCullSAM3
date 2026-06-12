@@ -446,6 +446,29 @@ struct SAM3SubjectMaskCacheReaderTests {
 @MainActor
 struct SAM3MaskCreationViewModelTests {
     @Test
+    func `SAM3 prefetch progress remaining count is clamped at zero`() {
+        let inProgress = SubjectMaskPrefetchProgress(
+            completed: 3,
+            total: 5,
+            cached: 0,
+            generated: 3,
+            failed: 0,
+            currentFileID: nil,
+        )
+        let overComplete = SubjectMaskPrefetchProgress(
+            completed: 6,
+            total: 5,
+            cached: 0,
+            generated: 5,
+            failed: 1,
+            currentFileID: nil,
+        )
+
+        #expect(inProgress.remaining == 2)
+        #expect(overComplete.remaining == 0)
+    }
+
+    @Test
     func `candidate files use current rating filter`() throws {
         let root = try makeSAM3CacheTestRoot()
         defer { try? FileManager.default.removeItem(at: root) }
