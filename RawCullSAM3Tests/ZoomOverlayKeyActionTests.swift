@@ -198,6 +198,27 @@ struct ImageSourceSelectionStateTests {
     }
 
     @Test(.tags(.smoke))
+    func `cached JPG preference selects embedded JPG from thumbnail`() {
+        var state = ImageSourceSelectionState()
+
+        let changed = state.selectEmbeddedJPGIfCached(true)
+
+        #expect(changed)
+        #expect(state.selected == .embeddedJPG)
+    }
+
+    @Test(.tags(.smoke))
+    func `missing JPG cache preserves selected source`() {
+        var state = ImageSourceSelectionState()
+        state.select(.developedRAW)
+
+        let changed = state.selectEmbeddedJPGIfCached(false)
+
+        #expect(!changed)
+        #expect(state.selected == .developedRAW)
+    }
+
+    @Test(.tags(.smoke))
     func `new image clears RAW disable while preserving selected source`() {
         var state = ImageSourceSelectionState()
         state.select(.developedRAW)
@@ -207,6 +228,20 @@ struct ImageSourceSelectionStateTests {
         state.resetForNewImage()
 
         #expect(state.selected == restoredSource)
+        #expect(state.rawUnavailable == false)
+    }
+
+    @Test(.tags(.smoke))
+    func `new image clears RAW disable and allows cached JPG preference`() {
+        var state = ImageSourceSelectionState()
+        state.select(.developedRAW)
+        state.markDevelopedRAWUnavailable()
+
+        state.resetForNewImage()
+        let changed = state.selectEmbeddedJPGIfCached(true)
+
+        #expect(changed)
+        #expect(state.selected == .embeddedJPG)
         #expect(state.rawUnavailable == false)
     }
 }

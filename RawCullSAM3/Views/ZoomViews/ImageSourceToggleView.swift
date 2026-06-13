@@ -28,6 +28,13 @@ nonisolated struct ImageSourceSelectionState: Equatable {
         rawUnavailable = true
     }
 
+    @discardableResult
+    mutating func selectEmbeddedJPGIfCached(_ isCached: Bool) -> Bool {
+        guard isCached, selected != .embeddedJPG else { return false }
+        select(.embeddedJPG)
+        return true
+    }
+
     mutating func resetForNewImage() {
         previous = selected
         rawUnavailable = false

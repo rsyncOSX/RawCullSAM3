@@ -134,6 +134,8 @@ struct ZoomOverlayView: View {
     @State private var showFocusPoints: Bool = false
     @State private var sourceSelection = ImageSourceSelectionState()
     @State private var showRAWNotSupported = false
+    @State private var sourcePreparationTask: Task<Void, Never>?
+    @State private var suppressSourceSelectionReload = false
     @State private var rawMessageTask: Task<Void, Never>?
     @State private var maskTask: Task<Void, Never>?
     @State private var subjectSegmentationTask: Task<Void, Never>?
@@ -304,10 +306,12 @@ struct ZoomOverlayView: View {
         .onAppear {
             isImageFocused = true
             installKeyMonitor()
-            reload()
+            prepareSourceAndReload(resetForNewImage: false)
         }
         .onDisappear {
             removeKeyMonitor()
+            sourcePreparationTask?.cancel()
+            sourcePreparationTask = nil
             maskTask?.cancel()
             maskTask = nil
             focusMask = nil
@@ -316,16 +320,16 @@ struct ZoomOverlayView: View {
             rawMessageTask = nil
         }
         .onChange(of: sourceSelection.selected) { _, _ in
+            if suppressSourceSelectionReload {
+                suppressSourceSelectionReload = false
+                return
+            }
             reload()
             loadCachedSubjectMask()
         }
         .onChange(of: viewModel.selectedFile) { _, _ in
             guard viewModel.zoomOverlayVisible else { return }
-            sourceSelection.resetForNewImage()
-            clearRAWMessage()
-            cancelSubjectSegmentation(clearMask: true)
-            reload()
-            loadCachedSubjectMask()
+            prepareSourceAndReload(resetForNewImage: true)
         }
         .task(id: viewModel.zoomOverlayCGImage?.hashValue) {
             try? await Task.sleep(for: .milliseconds(300))
@@ -344,6 +348,38 @@ struct ZoomOverlayView: View {
     }
 
     // MARK: - Reload
+
+    private func prepareSourceAndReload(resetForNewImage: Bool) {
+        guard let file = viewModel.selectedFile else { return }
+        sourcePreparationTask?.cancel()
+        viewModel.zoomExtractionTask?.cancel()
+
+        if resetForNewImage {
+            sourceSelection.resetForNewImage()
+            clearRAWMessage()
+            resetSubjectMaskForImageChange()
+        }
+
+        sourcePreparationTask = Task {
+            let hasCachedJPG = await SharedMemoryCache.shared.fullSizeJPGDiskCache.contains(
+                for: file.url,
+                variant: .embeddedJPG,
+            )
+            guard !Task.isCancelled else { return }
+
+            await MainActor.run {
+                guard viewModel.selectedFile?.id == file.id else { return }
+                sourcePreparationTask = nil
+                let shouldSelectCachedJPG = hasCachedJPG && sourceSelection.selected != .embeddedJPG
+                if shouldSelectCachedJPG {
+                    suppressSourceSelectionReload = true
+                    sourceSelection.selectEmbeddedJPGIfCached(true)
+                }
+                reload()
+                loadCachedSubjectMask()
+            }
+        }
+    }
 
     private func reload() {
         guard let file = viewModel.selectedFile else { return }
@@ -575,7 +611,6 @@ struct ZoomOverlayView: View {
         subjectSegmentationTask?.cancel()
         subjectSegmentationTask = nil
         subjectMask = nil
-        showSubjectMask = false
         subjectSegmentationState = .idle
 
         guard let selectedFile = viewModel.selectedFile,
@@ -591,6 +626,13 @@ struct ZoomOverlayView: View {
                 subjectSegmentationState = result.map { .ready($0.diagnostics) } ?? .idle
             }
         }
+    }
+
+    private func resetSubjectMaskForImageChange() {
+        subjectSegmentationTask?.cancel()
+        subjectSegmentationTask = nil
+        subjectMask = nil
+        subjectSegmentationState = .idle
     }
 
     private func cancelSubjectSegmentation(clearMask: Bool) {
