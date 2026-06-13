@@ -23,24 +23,52 @@ struct SAM3MaskGenerationPipeline {
         let fileNamesByID = Dictionary(uniqueKeysWithValues: files.map { ($0.id, $0.name) })
         await progress?(.started(total: files.count))
 
+        let partition = try await actor.partitionByValidDiskCache(files: files, prompt: prompt)
+        let initialCached = partition.cached.count
+
         let recorder = SAM3MaskGenerationProgressRecorder(initial: SubjectMaskPrefetchProgress(
-            completed: 0,
+            completed: initialCached,
             total: files.count,
-            cached: 0,
+            cached: initialCached,
             generated: 0,
             failed: 0,
-            currentFileID: files.first?.id,
+            currentFileID: partition.missing.first?.id,
         ))
+        if initialCached > 0 {
+            await progress?(.progress(
+                await recorder.latest(),
+                currentFileName: partition.missing.first?.name,
+            ))
+        }
+
+        guard !partition.missing.isEmpty else {
+            let summary = SAM3MaskBuildSummary(
+                total: files.count,
+                cached: initialCached,
+                generated: 0,
+                failed: 0,
+            )
+            await progress?(.completed(summary))
+            return summary
+        }
 
         try await actor.prefetch(
-            files: files,
+            files: partition.missing,
             prompt: prompt,
             imageLoader: imageLoader,
             progress: { update in
-                await recorder.record(update)
+                let translated = SubjectMaskPrefetchProgress(
+                    completed: initialCached + update.completed,
+                    total: files.count,
+                    cached: initialCached + update.cached,
+                    generated: update.generated,
+                    failed: update.failed,
+                    currentFileID: update.currentFileID,
+                )
+                await recorder.record(translated)
                 await progress?(.progress(
-                    update,
-                    currentFileName: update.currentFileID.flatMap { fileNamesByID[$0] },
+                    translated,
+                    currentFileName: translated.currentFileID.flatMap { fileNamesByID[$0] },
                 ))
             },
         )

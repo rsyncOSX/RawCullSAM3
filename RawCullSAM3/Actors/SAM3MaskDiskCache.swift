@@ -89,6 +89,32 @@ actor SAM3MaskDiskCache {
         }.value
     }
 
+    func containsValidMask(
+        for sourceURL: URL,
+        prompt: SubjectSegmentationPrompt,
+        modelVersion: String,
+        inputMaxSide: Int,
+    ) async -> Bool {
+        guard !Task.isCancelled else { return false }
+        let urls = cacheURLs(
+            for: sourceURL,
+            prompt: prompt,
+            modelVersion: modelVersion,
+            inputMaxSide: inputMaxSide,
+        )
+        let sourceIdentity = Self.sourceIdentity(for: sourceURL)
+
+        return await Task.detached(priority: .utility) {
+            Self.isValidCacheEntry(
+                urls: urls,
+                sourceIdentity: sourceIdentity,
+                prompt: prompt,
+                modelVersion: modelVersion,
+                inputMaxSide: inputMaxSide,
+            )
+        }.value
+    }
+
     func save(
         _ result: SubjectSegmentationResult,
         for sourceURL: URL,
@@ -252,6 +278,28 @@ actor SAM3MaskDiskCache {
         }
         CGImageSourceRemoveCacheAtIndex(imageSource, 0)
         return cgImage
+    }
+
+    private nonisolated static func isValidCacheEntry(
+        urls: (mask: URL, metadata: URL),
+        sourceIdentity: SAM3MaskSourceIdentity,
+        prompt: SubjectSegmentationPrompt,
+        modelVersion: String,
+        inputMaxSide: Int,
+    ) -> Bool {
+        guard let metadataData = try? Data(contentsOf: urls.metadata),
+              let metadata = try? JSONDecoder().decode(SAM3MaskDiskCacheMetadata.self, from: metadataData),
+              metadata.matches(
+                  sourceIdentity: sourceIdentity,
+                  prompt: prompt,
+                  modelVersion: modelVersion,
+                  inputMaxSide: inputMaxSide,
+              ),
+              loadPNG(from: urls.mask) != nil
+        else {
+            return false
+        }
+        return true
     }
 
     private nonisolated static func sourceIdentity(for sourceURL: URL) -> SAM3MaskSourceIdentity {

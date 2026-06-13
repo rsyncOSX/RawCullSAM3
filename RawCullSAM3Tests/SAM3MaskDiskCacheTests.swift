@@ -379,6 +379,140 @@ struct SubjectSegmentationActorCacheTests {
     }
 
     @Test
+    func `generation pipeline validates disk cache and generates only missing masks`() async throws {
+        let root = try makeSAM3CacheTestRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let cachedSource = try makeSAM3CacheSource(in: root, name: "cached.ARW")
+        let missingSource = try makeSAM3CacheSource(in: root, name: "missing.ARW")
+        let cachedFile = makeSAM3TestFileItem(url: cachedSource)
+        let missingFile = makeSAM3TestFileItem(url: missingSource)
+        let diskCache = SAM3MaskDiskCache(cacheDirectory: root.appendingPathComponent("Masks", isDirectory: true))
+        let provider = FakeSubjectSegmentationProvider()
+        let cachedResult = try makeSAM3Result(
+            fileID: cachedFile.id,
+            prompt: .subject,
+            modelVersion: provider.modelVersion,
+            width: 24,
+            height: 12,
+        )
+        await diskCache.save(cachedResult, for: cachedSource, inputMaxSide: SAM3SubjectMaskCacheReader.inputMaxSide)
+        let actor = SubjectSegmentationActor(
+            provider: provider,
+            cache: SubjectMaskCache(),
+            diskCache: diskCache,
+            maxSide: SAM3SubjectMaskCacheReader.inputMaxSide,
+        )
+        let image = try makeSAM3CacheTestCGImage(width: 24, height: 12)
+        let recorder = SAM3MaskBuildEventRecorder()
+        let pipeline = SAM3MaskGenerationPipeline(
+            actor: actor,
+            imageLoader: { _ in image },
+        )
+
+        let summary = try await pipeline.generate(files: [cachedFile, missingFile]) { event in
+            await recorder.record(event)
+        }
+        let events = await recorder.events()
+
+        #expect(await provider.callCount() == 1)
+        #expect(summary.total == 2)
+        #expect(summary.cached == 1)
+        #expect(summary.generated == 1)
+        #expect(events.first == .started(total: 2))
+        #expect(events.contains { event in
+            event.kind == .progress &&
+                event.completed == 1 &&
+                event.total == 2 &&
+                event.cached == 1 &&
+                event.generated == 0
+        })
+        #expect(events.last == .completed(summary))
+    }
+
+    @Test
+    func `generation pipeline treats stale disk cache as missing`() async throws {
+        let root = try makeSAM3CacheTestRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let source = try makeSAM3CacheSource(in: root)
+        let file = makeSAM3TestFileItem(url: source)
+        let diskCache = SAM3MaskDiskCache(cacheDirectory: root.appendingPathComponent("Masks", isDirectory: true))
+        let provider = FakeSubjectSegmentationProvider()
+        let cachedResult = try makeSAM3Result(
+            fileID: file.id,
+            prompt: .subject,
+            modelVersion: provider.modelVersion,
+        )
+        await diskCache.save(cachedResult, for: source, inputMaxSide: SAM3SubjectMaskCacheReader.inputMaxSide)
+        try Data([9, 8, 7, 6]).write(to: source)
+        let actor = SubjectSegmentationActor(
+            provider: provider,
+            cache: SubjectMaskCache(),
+            diskCache: diskCache,
+            maxSide: SAM3SubjectMaskCacheReader.inputMaxSide,
+        )
+        let image = try makeSAM3CacheTestCGImage()
+        let pipeline = SAM3MaskGenerationPipeline(
+            actor: actor,
+            imageLoader: { _ in image },
+        )
+
+        let summary = try await pipeline.generate(files: [file])
+
+        #expect(await provider.callCount() == 1)
+        #expect(summary.cached == 0)
+        #expect(summary.generated == 1)
+    }
+
+    @Test
+    func `generation pipeline treats corrupt mask cache as missing and rewrites it`() async throws {
+        let root = try makeSAM3CacheTestRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let source = try makeSAM3CacheSource(in: root)
+        let file = makeSAM3TestFileItem(url: source)
+        let cacheDirectory = root.appendingPathComponent("Masks", isDirectory: true)
+        let diskCache = SAM3MaskDiskCache(cacheDirectory: cacheDirectory)
+        let provider = FakeSubjectSegmentationProvider()
+        let cachedResult = try makeSAM3Result(
+            fileID: file.id,
+            prompt: .subject,
+            modelVersion: provider.modelVersion,
+        )
+        await diskCache.save(cachedResult, for: source, inputMaxSide: SAM3SubjectMaskCacheReader.inputMaxSide)
+        let cachedFiles = try FileManager.default.contentsOfDirectory(
+            at: cacheDirectory,
+            includingPropertiesForKeys: nil,
+        )
+        let maskURL = try #require(cachedFiles.first { $0.pathExtension == "png" })
+        try Data([0, 1, 2, 3]).write(to: maskURL, options: .atomic)
+        let actor = SubjectSegmentationActor(
+            provider: provider,
+            cache: SubjectMaskCache(),
+            diskCache: diskCache,
+            maxSide: SAM3SubjectMaskCacheReader.inputMaxSide,
+        )
+        let image = try makeSAM3CacheTestCGImage(width: 28, height: 14)
+        let pipeline = SAM3MaskGenerationPipeline(
+            actor: actor,
+            imageLoader: { _ in image },
+        )
+
+        let summary = try await pipeline.generate(files: [file])
+        let loaded = await diskCache.load(
+            for: source,
+            fileID: file.id,
+            prompt: .subject,
+            modelVersion: provider.modelVersion,
+            inputMaxSide: SAM3SubjectMaskCacheReader.inputMaxSide,
+        )
+
+        #expect(await provider.callCount() == 1)
+        #expect(summary.cached == 0)
+        #expect(summary.generated == 1)
+        #expect(loaded?.mask.width == 28)
+        #expect(loaded?.mask.height == 14)
+    }
+
+    @Test
     func `prefetch stops on cancellation`() async throws {
         let root = try makeSAM3CacheTestRoot()
         defer { try? FileManager.default.removeItem(at: root) }

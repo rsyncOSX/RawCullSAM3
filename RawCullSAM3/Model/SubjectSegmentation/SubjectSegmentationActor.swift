@@ -34,6 +34,31 @@ actor SubjectSegmentationActor {
         activeRequestID = nil
     }
 
+    func partitionByValidDiskCache(
+        files: [FileItem],
+        prompt: SubjectSegmentationPrompt,
+    ) async throws -> (cached: [FileItem], missing: [FileItem]) {
+        var cached: [FileItem] = []
+        var missing: [FileItem] = []
+
+        for file in files {
+            try Task.checkCancellation()
+            let isCached = await diskCache.containsValidMask(
+                for: file.url,
+                prompt: prompt,
+                modelVersion: provider.modelVersion,
+                inputMaxSide: maxSide,
+            )
+            if isCached {
+                cached.append(file)
+            } else {
+                missing.append(file)
+            }
+        }
+
+        return (cached, missing)
+    }
+
     func segment(
         image: CGImage,
         fileID: UUID,
