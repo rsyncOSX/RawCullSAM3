@@ -184,6 +184,10 @@ struct ImageItemView: View {
                             density: .compact,
                         )
 
+                        SubjectQualityBadgeView(
+                            model: SubjectQualityBadgeModel(entry: viewModel.maskInventory[file.id]),
+                        )
+
                         if let groupID = viewModel.similarityModel.burstGroupLookup[file.id],
                            let analysis = viewModel.burstAnalysisResult(for: groupID),
                            let candidate = viewModel.burstCandidate(for: file) {
