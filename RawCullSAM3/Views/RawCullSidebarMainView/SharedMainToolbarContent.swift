@@ -156,39 +156,19 @@ struct SharedMainToolbarContent: ToolbarContent {
         viewModel.isCreatingSAM3Masks ? "Unavailable while SAM3 masks are being created" : nil
     }
 
-    private var sam3ToolbarLabel: String {
-        if viewModel.isCreatingSAM3Masks {
-            return "SAM3 \(viewModel.sam3MaskCreationProgress?.remaining ?? 0) left"
-        }
-        return "SAM3"
-    }
-
-    @ViewBuilder
     private var sam3ToolbarButtonLabel: some View {
-        if viewModel.isCreatingSAM3Masks {
-            HStack(spacing: 5) {
-                ProgressView()
-                    .controlSize(.small)
-                    .fixedSize()
-
-                Text(sam3ToolbarLabel)
-                    .font(.caption.monospacedDigit())
-                    .lineLimit(1)
-            }
-        } else {
-            Label(sam3ToolbarLabel, systemImage: "sparkles.rectangle.stack")
-        }
+        Label("SAM3", systemImage: "sparkles.rectangle.stack")
     }
 
     private var sam3ToolbarHelp: String {
         if viewModel.isCreatingSAM3Masks {
-            return "Cancel SAM3 mask creation"
+            return "SAM3 mask creation is already running"
         }
         return "Create SAM3 subject masks for the full selected catalog"
     }
 
     private var sam3ToolbarIsDisabled: Bool {
-        if viewModel.isCreatingSAM3Masks { return false }
+        if viewModel.isCreatingSAM3Masks { return true }
         return viewModel.selectedSource == nil ||
             viewModel.sam3MaskCreationCatalogFiles.isEmpty ||
             viewModel.creatingthumbnails
@@ -204,11 +184,8 @@ struct SharedMainToolbarContent: ToolbarContent {
     }
 
     private func toggleSAM3MaskCreation() {
-        if viewModel.isCreatingSAM3Masks {
-            viewModel.cancelSAM3MaskCreation()
-        } else {
-            viewModel.requestCreateSAM3MasksConfirmation()
-        }
+        guard !viewModel.isCreatingSAM3Masks else { return }
+        viewModel.requestCreateSAM3MasksConfirmation()
     }
 
     private func selectGridMode() {
