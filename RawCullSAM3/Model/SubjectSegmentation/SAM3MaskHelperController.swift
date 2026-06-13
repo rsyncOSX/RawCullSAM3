@@ -176,8 +176,8 @@ final class SAM3MaskHelperController {
         guard let modelResourcesURL = modelResourceManager.installedModelURL() else {
             throw HelperControllerError.modelResourcesNotFound
         }
-        return SAM3MaskBuildRequest(
-            catalogBookmark: try catalogURL.bookmarkData(
+        return try SAM3MaskBuildRequest(
+            catalogBookmark: catalogURL.bookmarkData(
                 options: [.withSecurityScope],
                 includingResourceValuesForKeys: nil,
                 relativeTo: nil,

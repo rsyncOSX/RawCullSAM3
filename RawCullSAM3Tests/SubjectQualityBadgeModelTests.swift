@@ -21,8 +21,8 @@ private func makeSubjectEntry(
 
 @Suite("SubjectQualityBadgeModel")
 struct SubjectQualityBadgeModelTests {
-    @Test("Missing mask is poor")
-    func missingMaskIsPoor() {
+    @Test
+    func `Missing mask is poor`() {
         let model = SubjectQualityBadgeModel(entry: nil)
 
         #expect(model.level == .poor)
@@ -31,8 +31,8 @@ struct SubjectQualityBadgeModelTests {
         #expect(model.isClipped == false)
     }
 
-    @Test("Reasonable fresh unclipped mask is good even with low model confidence")
-    func goodMask() {
+    @Test
+    func `Reasonable fresh unclipped mask is good even with low model confidence`() {
         let model = SubjectQualityBadgeModel(entry: makeSubjectEntry(confidence: 0.09))
 
         #expect(model.level == .good)
@@ -43,8 +43,8 @@ struct SubjectQualityBadgeModelTests {
         #expect(model.helpText.contains("model confidence 9%"))
     }
 
-    @Test("Low confidence does not downgrade usable geometry")
-    func lowConfidenceDoesNotDowngradeUsableGeometry() {
+    @Test
+    func `Low confidence does not downgrade usable geometry`() {
         let model = SubjectQualityBadgeModel(entry: makeSubjectEntry(confidence: 0.69))
 
         #expect(model.level == .good)
@@ -52,23 +52,23 @@ struct SubjectQualityBadgeModelTests {
         #expect(model.helpText.contains("model confidence 69%"))
     }
 
-    @Test("Near empty coverage is poor")
-    func nearEmptyCoverageIsPoor() {
+    @Test
+    func `Near empty coverage is poor`() {
         let model = SubjectQualityBadgeModel(entry: makeSubjectEntry(coverage: 0.004))
 
         #expect(model.level == .poor)
     }
 
-    @Test("Low but measurable coverage is warning")
-    func lowCoverageIsWarning() {
+    @Test
+    func `Low but measurable coverage is warning`() {
         let model = SubjectQualityBadgeModel(entry: makeSubjectEntry(coverage: 0.01))
 
         #expect(model.level == .warning)
         #expect(model.label == "SAM ?")
     }
 
-    @Test("Broad coverage is warning and extremely broad coverage is poor")
-    func broadCoverageClassifiesByWeakness() {
+    @Test
+    func `Broad coverage is warning and extremely broad coverage is poor`() {
         let broad = SubjectQualityBadgeModel(entry: makeSubjectEntry(coverage: 0.71))
         let extremelyBroad = SubjectQualityBadgeModel(entry: makeSubjectEntry(coverage: 0.91))
 
@@ -76,8 +76,8 @@ struct SubjectQualityBadgeModelTests {
         #expect(extremelyBroad.level == .poor)
     }
 
-    @Test("Frame edge clipping is warning")
-    func clippedMaskIsWarning() {
+    @Test
+    func `Frame edge clipping is warning`() {
         let model = SubjectQualityBadgeModel(entry: makeSubjectEntry(
             boundingBox: CGRect(x: 0.02, y: 0.2, width: 0.3, height: 0.3),
         ))
@@ -87,8 +87,8 @@ struct SubjectQualityBadgeModelTests {
         #expect(model.helpText.contains("clipped at frame edge"))
     }
 
-    @Test("Stale mask is warning")
-    func staleMaskIsWarning() {
+    @Test
+    func `Stale mask is warning`() {
         let model = SubjectQualityBadgeModel(entry: makeSubjectEntry(isFresh: false))
 
         #expect(model.level == .warning)

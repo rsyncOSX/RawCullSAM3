@@ -117,9 +117,9 @@ nonisolated struct SAM3ModelResourceManager {
 
     private static var defaultAllowsBundledFallback: Bool {
         #if DEBUG
-        true
+            true
         #else
-        false
+            false
         #endif
     }
 

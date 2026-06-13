@@ -36,7 +36,7 @@ struct SAM3MaskGenerationPipeline {
         ))
         if initialCached > 0 {
             await progress?(.progress(
-                await recorder.latest(),
+                recorder.latest(),
                 currentFileName: partition.missing.first?.name,
             ))
         }

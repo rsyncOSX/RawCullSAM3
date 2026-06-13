@@ -1,7 +1,7 @@
 import Foundation
 import RawCullCore
-import Testing
 @testable import RawCullSAM3
+import Testing
 
 struct SAM3ModelResourceManagerTests {
     @Test

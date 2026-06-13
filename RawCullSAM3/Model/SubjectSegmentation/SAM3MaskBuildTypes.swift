@@ -97,4 +97,3 @@ nonisolated struct SAM3MaskBuildEvent: Codable, Equatable {
         )
     }
 }
-

@@ -35,8 +35,8 @@ private func makeMaskImage(
 
 @Suite("SAM3MaskInventoryEntry geometry — coverage")
 struct SAM3MaskInventoryCoverageTests {
-    @Test("Full mask gives coverage 1.0")
-    func fullMaskCoverage() throws {
+    @Test
+    func `Full mask gives coverage 1.0`() throws {
         let image = try makeMaskImage(
             width: 10, height: 10,
             maskRect: CGRect(x: 0, y: 0, width: 10, height: 10),
@@ -50,8 +50,8 @@ struct SAM3MaskInventoryCoverageTests {
         #expect(abs(entry.coverage - 1.0) < 0.01)
     }
 
-    @Test("Empty mask gives coverage 0.0")
-    func emptyMaskCoverage() throws {
+    @Test
+    func `Empty mask gives coverage 0.0`() throws {
         let image = try makeMaskImage(width: 10, height: 10)
         let entry = SAM3MaskInventoryEntry.geometry(
             from: image,
@@ -62,8 +62,8 @@ struct SAM3MaskInventoryCoverageTests {
         #expect(entry.coverage == 0.0)
     }
 
-    @Test("Half mask gives coverage ~0.5")
-    func halfMaskCoverage() throws {
+    @Test
+    func `Half mask gives coverage ~0.5`() throws {
         // Fill top half only
         let image = try makeMaskImage(
             width: 10, height: 10,
@@ -83,8 +83,8 @@ struct SAM3MaskInventoryCoverageTests {
 
 @Suite("SAM3MaskInventoryEntry geometry — bounding box")
 struct SAM3MaskInventoryBoundingBoxTests {
-    @Test("Empty mask gives zero bounding box")
-    func emptyBoundingBox() throws {
+    @Test
+    func `Empty mask gives zero bounding box`() throws {
         let image = try makeMaskImage(width: 20, height: 20)
         let entry = SAM3MaskInventoryEntry.geometry(
             from: image,
@@ -95,8 +95,8 @@ struct SAM3MaskInventoryBoundingBoxTests {
         #expect(entry.boundingBox == .zero)
     }
 
-    @Test("Full mask gives bounding box (0,0,1,1)")
-    func fullBoundingBox() throws {
+    @Test
+    func `Full mask gives bounding box (0,0,1,1)`() throws {
         let image = try makeMaskImage(
             width: 20, height: 20,
             maskRect: CGRect(x: 0, y: 0, width: 20, height: 20),
@@ -113,8 +113,8 @@ struct SAM3MaskInventoryBoundingBoxTests {
         #expect(abs(entry.boundingBox.height - 1.0) < 0.01)
     }
 
-    @Test("Centre patch gives correctly normalised bounding box")
-    func centrePatchBoundingBox() throws {
+    @Test
+    func `Centre patch gives correctly normalised bounding box`() throws {
         // 40×40 image, mask at pixels (10,10)→(29,29) (20×20 centre square)
         let image = try makeMaskImage(
             width: 40, height: 40,
@@ -138,8 +138,8 @@ struct SAM3MaskInventoryBoundingBoxTests {
 
 @Suite("SAM3MaskInventoryEntry geometry — centroid")
 struct SAM3MaskInventoryCentroidTests {
-    @Test("Full mask centroid is ~(0.5, 0.5)")
-    func fullMaskCentroid() throws {
+    @Test
+    func `Full mask centroid is ~(0.5, 0.5)`() throws {
         let image = try makeMaskImage(
             width: 20, height: 20,
             maskRect: CGRect(x: 0, y: 0, width: 20, height: 20),
@@ -154,8 +154,8 @@ struct SAM3MaskInventoryCentroidTests {
         #expect(abs(entry.centroid.y - 0.5) < 0.05)
     }
 
-    @Test("Top-left patch centroid is in the top-left quadrant")
-    func topLeftCentroid() throws {
+    @Test
+    func `Top-left patch centroid is in the top-left quadrant`() throws {
         // Mask covers top-left quarter
         let image = try makeMaskImage(
             width: 20, height: 20,
@@ -176,8 +176,8 @@ struct SAM3MaskInventoryCentroidTests {
 
 @Suite("SAM3MaskInventoryEntry — freshness")
 struct SAM3MaskInventoryFreshnessTests {
-    @Test("Cache newer than source is fresh")
-    func freshWhenCacheNewer() throws {
+    @Test
+    func `Cache newer than source is fresh`() throws {
         let image = try makeMaskImage(
             width: 4, height: 4,
             maskRect: CGRect(x: 0, y: 0, width: 4, height: 4),
@@ -193,8 +193,8 @@ struct SAM3MaskInventoryFreshnessTests {
         #expect(entry.isFresh == true)
     }
 
-    @Test("Cache older than source is stale")
-    func staleWhenSourceNewer() throws {
+    @Test
+    func `Cache older than source is stale`() throws {
         let image = try makeMaskImage(
             width: 4, height: 4,
             maskRect: CGRect(x: 0, y: 0, width: 4, height: 4),
@@ -215,8 +215,8 @@ struct SAM3MaskInventoryFreshnessTests {
 
 @Suite("SAM3MaskInventoryEntry — absent")
 struct SAM3MaskInventoryAbsentTests {
-    @Test("Absent entry has hasMask false and zero geometry")
-    func absentEntry() {
+    @Test
+    func `Absent entry has hasMask false and zero geometry`() {
         let entry = SAM3MaskInventoryEntry.absent
         #expect(entry.hasMask == false)
         #expect(entry.confidence == 0)

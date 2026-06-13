@@ -64,7 +64,9 @@ actor SAM3MaskCatalogIndex {
 
             if batch.count >= batchSize {
                 let captured = batch
-                for (id, e) in captured { inventory[id] = e }
+                for (id, e) in captured {
+                    inventory[id] = e
+                }
                 batch.removeAll(keepingCapacity: true)
                 if let onUpdate {
                     await onUpdate()
@@ -75,14 +77,16 @@ actor SAM3MaskCatalogIndex {
         guard !Task.isCancelled else { return }
 
         if !batch.isEmpty {
-            for (id, e) in batch { inventory[id] = e }
+            for (id, e) in batch {
+                inventory[id] = e
+            }
             if let onUpdate {
                 await onUpdate()
             }
         }
 
         Logger.process.debugMessageOnly(
-            "SAM3MaskCatalogIndex: built inventory for \(inventory.count) files"
+            "SAM3MaskCatalogIndex: built inventory for \(inventory.count) files",
         )
     }
 
@@ -109,7 +113,7 @@ actor SAM3MaskCatalogIndex {
         }
 
         let fileModDate = (try? FileManager.default
-            .attributesOfItem(atPath: file.url.path)[.modificationDate] as? Date) ?? nil
+            .attributesOfItem(atPath: file.url.path)[.modificationDate] as? Date)
         let cacheModDate = await diskCache.cacheModificationDate(
             for: file.url,
             prompt: SAM3SubjectMaskCacheReader.prompt,

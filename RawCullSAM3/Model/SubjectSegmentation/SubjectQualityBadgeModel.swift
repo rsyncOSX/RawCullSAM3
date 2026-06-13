@@ -1,14 +1,14 @@
 import CoreGraphics
 import Foundation
 
-nonisolated enum SubjectQualityBadgeLevel: Equatable, Sendable {
+nonisolated enum SubjectQualityBadgeLevel: Equatable {
     case good
     case warning
     case poor
 }
 
 /// UI-neutral summary of cached SAM 3 subject-mask quality.
-nonisolated struct SubjectQualityBadgeModel: Sendable {
+nonisolated struct SubjectQualityBadgeModel {
     static let minimumReasonableCoverage: Float = 0.02
     static let maximumReasonableCoverage: Float = 0.70
     static let minimumUsableCoverage: Float = 0.005

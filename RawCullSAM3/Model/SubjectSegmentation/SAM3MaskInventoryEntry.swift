@@ -4,7 +4,7 @@ import Foundation
 /// Lightweight geometry and quality metadata for one cached SAM 3 mask.
 /// Computed once from the disk cache after catalog open; consumed by badges,
 /// filters, sharpness weighting, and export without re-decoding PNG masks.
-nonisolated struct SAM3MaskInventoryEntry: Sendable {
+nonisolated struct SAM3MaskInventoryEntry {
     /// `true` when a valid SAM 3 mask is cached for this file.
     let hasMask: Bool
     /// SAM 3 model confidence score in the range 0–1.
@@ -50,11 +50,10 @@ extension SAM3MaskInventoryEntry {
         let boundingBox = computeBoundingBox(alphaPlane: alphaPlane, width: width, height: height)
         let centroid = computeCentroid(alphaPlane: alphaPlane, width: width, height: height)
 
-        let isFresh: Bool
-        if let src = sourceModificationDate, let cache = cacheModificationDate {
-            isFresh = cache >= src
+        let isFresh: Bool = if let src = sourceModificationDate, let cache = cacheModificationDate {
+            cache >= src
         } else {
-            isFresh = true
+            true
         }
 
         return SAM3MaskInventoryEntry(
@@ -109,8 +108,10 @@ private nonisolated func extractAlphaPlane(from image: CGImage, width: Int, heig
 private nonisolated func computeCoverage(alphaPlane: [UInt8], width: Int, height: Int) -> Float {
     guard !alphaPlane.isEmpty else { return 0 }
     let total = width * height
-    var nonZero: Int = 0
-    for v in alphaPlane where v > 0 { nonZero += 1 }
+    var nonZero = 0
+    for v in alphaPlane where v > 0 {
+        nonZero += 1
+    }
     return Float(nonZero) / Float(total)
 }
 
