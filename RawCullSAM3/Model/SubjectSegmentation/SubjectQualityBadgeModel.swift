@@ -9,9 +9,10 @@ nonisolated enum SubjectQualityBadgeLevel: Equatable, Sendable {
 
 /// UI-neutral summary of cached SAM 3 subject-mask quality.
 nonisolated struct SubjectQualityBadgeModel: Sendable {
-    static let goodConfidenceThreshold: Float = 0.70
     static let minimumReasonableCoverage: Float = 0.02
     static let maximumReasonableCoverage: Float = 0.70
+    static let minimumUsableCoverage: Float = 0.005
+    static let maximumUsableCoverage: Float = 0.90
     static let edgeClipMargin: CGFloat = 0.02
 
     let level: SubjectQualityBadgeLevel
@@ -29,23 +30,30 @@ nonisolated struct SubjectQualityBadgeModel: Sendable {
         }
 
         isClipped = Self.isClipped(entry.boundingBox)
-        label = "SAM \(Self.percent(entry.confidence))%"
+        label = switch Self.classify(entry: entry, isClipped: isClipped) {
+        case .good: "SAM"
+        case .warning: "SAM ?"
+        case .poor: "SAM --"
+        }
 
-        let veryWeak = entry.coverage <= 0.005 || entry.coverage >= 0.90 || entry.boundingBox == .zero
-        let isGood = entry.confidence >= Self.goodConfidenceThreshold
-            && (Self.minimumReasonableCoverage ... Self.maximumReasonableCoverage).contains(entry.coverage)
+        level = Self.classify(entry: entry, isClipped: isClipped)
+        helpText = Self.helpText(for: entry, isClipped: isClipped, level: level)
+    }
+
+    private static func classify(
+        entry: SAM3MaskInventoryEntry,
+        isClipped: Bool,
+    ) -> SubjectQualityBadgeLevel {
+        let unusable = entry.boundingBox == .zero
+            || entry.coverage <= minimumUsableCoverage
+            || entry.coverage >= maximumUsableCoverage
+        guard !unusable else { return .poor }
+
+        let cleanGeometry = (minimumReasonableCoverage ... maximumReasonableCoverage).contains(entry.coverage)
             && entry.isFresh
             && !isClipped
 
-        if veryWeak {
-            level = .poor
-        } else if isGood {
-            level = .good
-        } else {
-            level = .warning
-        }
-
-        helpText = Self.helpText(for: entry, isClipped: isClipped, level: level)
+        return cleanGeometry ? .good : .warning
     }
 
     private static func isClipped(_ rect: CGRect) -> Bool {
@@ -66,13 +74,13 @@ nonisolated struct SubjectQualityBadgeModel: Sendable {
         level: SubjectQualityBadgeLevel,
     ) -> String {
         let quality = switch level {
-        case .good: "Strong SAM3 subject mask"
-        case .warning: "Check SAM3 subject mask"
-        case .poor: "Weak SAM3 subject mask"
+        case .good: "Usable SAM3 subject mask"
+        case .warning: "SAM3 subject mask has cautions"
+        case .poor: "No usable SAM3 subject mask"
         }
 
         let clippedText = isClipped ? "clipped at frame edge" : "not clipped"
         let freshnessText = entry.isFresh ? "fresh" : "stale"
-        return "\(quality): confidence \(percent(entry.confidence))%, coverage \(percent(entry.coverage))%, \(clippedText), \(freshnessText)"
+        return "\(quality): coverage \(percent(entry.coverage))%, \(clippedText), \(freshnessText), model confidence \(percent(entry.confidence))%"
     }
 }

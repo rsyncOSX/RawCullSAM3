@@ -31,23 +31,25 @@ struct SubjectQualityBadgeModelTests {
         #expect(model.isClipped == false)
     }
 
-    @Test("Confident reasonable fresh unclipped mask is good")
+    @Test("Reasonable fresh unclipped mask is good even with low model confidence")
     func goodMask() {
-        let model = SubjectQualityBadgeModel(entry: makeSubjectEntry(confidence: 0.84))
+        let model = SubjectQualityBadgeModel(entry: makeSubjectEntry(confidence: 0.09))
 
         #expect(model.level == .good)
-        #expect(model.label == "SAM 84%")
+        #expect(model.label == "SAM")
         #expect(model.helpText.contains("coverage 20%"))
         #expect(model.helpText.contains("not clipped"))
         #expect(model.helpText.contains("fresh"))
+        #expect(model.helpText.contains("model confidence 9%"))
     }
 
-    @Test("Low confidence mask is warning")
-    func lowConfidenceIsWarning() {
+    @Test("Low confidence does not downgrade usable geometry")
+    func lowConfidenceDoesNotDowngradeUsableGeometry() {
         let model = SubjectQualityBadgeModel(entry: makeSubjectEntry(confidence: 0.69))
 
-        #expect(model.level == .warning)
-        #expect(model.label == "SAM 69%")
+        #expect(model.level == .good)
+        #expect(model.label == "SAM")
+        #expect(model.helpText.contains("model confidence 69%"))
     }
 
     @Test("Near empty coverage is poor")
@@ -62,6 +64,7 @@ struct SubjectQualityBadgeModelTests {
         let model = SubjectQualityBadgeModel(entry: makeSubjectEntry(coverage: 0.01))
 
         #expect(model.level == .warning)
+        #expect(model.label == "SAM ?")
     }
 
     @Test("Broad coverage is warning and extremely broad coverage is poor")
