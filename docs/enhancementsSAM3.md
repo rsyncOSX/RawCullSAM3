@@ -50,6 +50,8 @@ working.
 
 ### A — Mask Inventory and Coverage Metadata
 
+**Status.** Implemented foundation.
+
 **What.** After opening a catalog, scan the SAM 3 disk cache and build a
 lightweight per-file mask inventory: `hasMask`, `confidence`, `coverage`,
 `boundingBox`, `centroid`, and `source freshness`.
@@ -66,18 +68,28 @@ geometry, and publishes an observable dictionary keyed by `FileItem.ID`.
 
 ### B — Subject Quality Badge
 
+**Status.** Implemented first version.
+
 **What.** Add a compact badge to thumbnails and comparison panes showing whether
-the subject mask is strong: confidence, subject coverage, and whether the
-subject is clipped at the frame edge.
+the cached subject mask is usable. The visible badge is intentionally based on
+mask geometry and freshness rather than the raw SAM 3 confidence score.
 
 **Why.** This is the first "AI assisted culling" feature users can see without
 changing scoring logic. It answers: "Did SAM 3 find a usable subject here?"
 
 **How.** Use the mask inventory. Color badge:
 
-- Green: confident subject, reasonable coverage, not clipped.
-- Amber: low coverage, low confidence, or near-edge clipping.
-- Red: no cached mask or very weak mask.
+- Green `SAM`: cached mask exists, coverage is reasonable, bounding box is
+  non-empty, the cache is fresh, and the subject is not clipped at the frame edge.
+- Amber `SAM ?`: cached mask exists but has a caution such as low/broad coverage,
+  stale cache metadata, or near-edge clipping.
+- Red `SAM --`: no cached mask, empty bounding box, near-empty coverage, or
+  extremely broad coverage.
+
+The SAM 3 model confidence score remains available in the badge help text as
+diagnostic metadata, but it should not be treated as the user-facing mask quality
+grade. A visually useful mask can have low model confidence, especially for
+low-contrast subjects, clipped subjects, or generic prompts.
 
 **Complexity.** ⭐⭐ Easy-Medium  
 **Timeframe.** 2-4 days
@@ -126,22 +138,22 @@ winner badge before auto-rating/rejecting anything.
 
 ---
 
-## 1 — Subject-Presence Confidence Filter
+## 1 — Subject Geometry / Usability Filter
 
-**What.** Add a slider or threshold setting to the Rating / Filter panel that
-hides images where the SAM 3 confidence score for the current prompt is below
-a chosen percentage. A photographer culling bird-in-flight frames could
-immediately discard shots where the subject is not visible or barely clipped.
+**What.** Add a filter to the Rating / Filter panel that hides or isolates images
+where the cached SAM 3 mask is missing, unusable, clipped, too small, or too
+broad. Raw SAM 3 confidence can remain visible as diagnostic metadata, but it
+should not be the primary filter gate.
 
 **How.** Use the mask inventory from **A** rather than querying the model or
-decoding masks per view refresh. A filter pass over `filteredFiles` checks the
-cached confidence and geometry; images without a cached result for the current
+decoding masks per view refresh. A filter pass over `filteredFiles` checks
+cached geometry and freshness; images without a cached result for the current
 prompt can be shown by default or grouped under "missing mask".
 
 **Compute impact.** Zero additional SAM 3 calls beyond what the cache already
 holds. Filtering itself is CPU-only and instantaneous.
 
-**Depends on.** **A** for fast per-file confidence and geometry metadata.
+**Depends on.** **A** for fast per-file geometry and freshness metadata.
 
 **Complexity.** ⭐ Easy  
 **Timeframe.** 1–2 days
@@ -152,12 +164,12 @@ holds. Filtering itself is CPU-only and instantaneous.
 
 **What.** Display a small coloured badge on each grid thumbnail once a SAM 3
 mask has been computed and cached for that image (similar to the sharpness score
-badge). The badge could show the confidence percentage and use green / amber /
-red colouring to give an at-a-glance subject-quality signal.
+badge). The badge should show mask usability, not the raw confidence percentage:
+green `SAM`, amber `SAM ?`, or red `SAM --`.
 
 **How.** Let `GridThumbnailViewModel` read published mask inventory state rather
 than calling the segmentation actor. Badges appear incrementally as the catalog
-index loads cached masks.
+index loads cached masks. Keep model confidence in help text only.
 
 **Compute impact.** No additional SAM 3 calls. Badges are driven by already-cached
 results.
@@ -448,8 +460,8 @@ It should come after mask inventory and subject-weighted sharpness are stable.
 
 | # | Feature | Status | Complexity | Timeframe | Extra SAM 3 cost | Depends on |
 |---|---------|--------|-----------|-----------|-----------------|-----------|
-| A | Mask Inventory / Coverage Metadata | Proposed next | ⭐⭐ Easy–Medium | 2–3 days | None (cache only) | #12 |
-| B / 2 | Subject Quality Badge | Proposed next | ⭐⭐ Easy–Medium | 2–4 days | None (cache only) | A |
+| A | Mask Inventory / Coverage Metadata | Implemented | ⭐⭐ Easy–Medium | 2–3 days | None (cache only) | #12 |
+| B / 2 | Subject Quality Badge | Implemented first version | ⭐⭐ Easy–Medium | 2–4 days | None (cache only) | A |
 | C / 1 | Subject Review Filters | Proposed next | ⭐⭐ Easy–Medium | 3–4 days | None (cache only) | A |
 | 3 | Sidecar BBox Export | Proposed | ⭐⭐ Easy–Medium | 2–3 days | None (cache only) | A |
 | 4 | Helper Catalog Mask Creation | Implemented | — | — | Full catalog × 1 prompt | #12 |

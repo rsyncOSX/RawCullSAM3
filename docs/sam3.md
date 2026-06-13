@@ -334,7 +334,8 @@ session do not reload the model.
 - `CoreAISegmentation` package product, imported from Swift as
   `CoreAIImageSegmenter`.
 
-## Fallback
+## Provider Injection
 
-`ExternalSAM3Provider` remains in the project for explicit debug/test injection,
-but `SubjectSegmentationActor()` defaults to the local Core AI SAM3 provider.
+`SubjectSegmentationActor` defaults to the local Core AI SAM3 provider. Tests can
+still inject any type that conforms to `SubjectSegmentationProvider`; there is no
+separate `ExternalSAM3Provider` type in the current codebase.

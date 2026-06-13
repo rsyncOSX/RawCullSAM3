@@ -105,7 +105,7 @@ make sam3-use-asset SAM3_ASSET=sam3_float16.aimodel  # revert to runtime model
 
 With catalog-wide mask generation in place, the focus shifts to turning cached masks into culling signals without re-running SAM3:
 
-- **Subject quality badges** — green/amber/red badge on thumbnails showing mask confidence and coverage
+- **Subject quality badges** — green/amber/red badge showing whether a cached SAM3 mask is usable; raw model confidence is diagnostic tooltip metadata
 - **Subject geometry filters** — filter by subject size, clipping, or off-center position
 - **Subject-weighted sharpness scoring** — use the SAM3 mask as the primary sharpness region instead of saliency heuristics
 - **Best-in-burst by subject sharpness** — automatically suggest the sharpest, best-framed frame in a burst
@@ -115,4 +115,5 @@ With catalog-wide mask generation in place, the focus shifts to turning cached m
 
 - Do **not** copy SAM3 model files into the app bundle (`RawCullSAM3.app/Contents/Resources`). This invalidates the app signature.
 - Debug builds may fall back to a bundled model directory for local development; release and App Store builds must not include model files.
-- `ExternalSAM3Provider` remains in the project for explicit debug/test injection.
+- Tests can inject any type conforming to `SubjectSegmentationProvider`; the
+  production actor defaults to the local Core AI SAM3 provider.

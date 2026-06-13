@@ -7,6 +7,10 @@ its use in `ZoomOverlayView`. No code was changed.
 
 ## 1. `ExternalSAM3Provider` is referenced in documentation but does not exist
 
+**Status:** Resolved in `docs/sam3.md`; the documentation now describes protocol
+injection through `SubjectSegmentationProvider` instead of naming a non-existent
+`ExternalSAM3Provider` type.
+
 `sam3.md` states:
 
 > `ExternalSAM3Provider` remains in the project for explicit debug/test injection,
@@ -184,7 +188,7 @@ SAM button becomes unavailable.
 
 | # | Severity | Type | Description |
 |---|---|---|---|
-| 1 | Medium | Documentation | `ExternalSAM3Provider` referenced in `sam3.md` does not exist in code |
+| 1 | Medium | Documentation | Resolved: `sam3.md` no longer references non-existent `ExternalSAM3Provider` |
 | 2 | High | Testing gap | Zero tests for SAM3 pipeline (`Actor`, `Provider`, `Cache`) |
 | 3 | Low | Bug | `SubjectSegmentationControlsView.iconName` returns same icon for on/off states |
 | 4 | Medium | Memory | `SubjectMaskCache` is unbounded — no eviction policy |
