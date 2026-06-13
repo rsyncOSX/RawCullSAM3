@@ -1,5 +1,7 @@
 # RawCullSAM3
 
+This project is an early beta on macOS 27 (Golden Gate) and by using Xcode 27. Apple released these beta versions, which include Core AI, a new framework for using AI models in Apple Silicon based apps. Core AI is still in development and testing, currently using Meta's SAM 3 model for image subject detection. 
+
 RawCullSAM3 is a macOS photo culling app that uses Apple Core AI SAM3 (Segment Anything Model 3) for AI-powered subject segmentation. It integrates with the promptable SAM3 path introduced in WWDC26, enabling fast and accurate subject masking directly from the camera roll.
 
 ## Requirements
