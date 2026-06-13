@@ -89,6 +89,25 @@ actor SAM3MaskDiskCache {
         }.value
     }
 
+    /// Synchronous, zero-overhead check: returns `false` if the metadata file is
+    /// simply absent from disk (no task spawned). Use this as a fast early-out
+    /// before calling `load` or `containsValidMask` when scanning large catalogs
+    /// where most files have no cached mask.
+    nonisolated func metadataFileExists(
+        for sourceURL: URL,
+        prompt: SubjectSegmentationPrompt,
+        modelVersion: String,
+        inputMaxSide: Int,
+    ) -> Bool {
+        let urls = cacheURLs(
+            for: sourceURL,
+            prompt: prompt,
+            modelVersion: modelVersion,
+            inputMaxSide: inputMaxSide,
+        )
+        return FileManager.default.fileExists(atPath: urls.metadata.path)
+    }
+
     func containsValidMask(
         for sourceURL: URL,
         prompt: SubjectSegmentationPrompt,
@@ -155,6 +174,24 @@ actor SAM3MaskDiskCache {
             } catch {
                 Logger.process.warning("SAM3MaskDiskCache: Failed to write mask cache for \(sourceURL.path): \(error)")
             }
+        }.value
+    }
+
+    /// Returns the file-system modification date of the cached metadata file, or `nil` if absent.
+    func cacheModificationDate(
+        for sourceURL: URL,
+        prompt: SubjectSegmentationPrompt,
+        modelVersion: String,
+        inputMaxSide: Int,
+    ) async -> Date? {
+        let urls = cacheURLs(
+            for: sourceURL,
+            prompt: prompt,
+            modelVersion: modelVersion,
+            inputMaxSide: inputMaxSide,
+        )
+        return await Task.detached(priority: .utility) {
+            (try? FileManager.default.attributesOfItem(atPath: urls.metadata.path)[.modificationDate]) as? Date
         }.value
     }
 
@@ -237,7 +274,7 @@ actor SAM3MaskDiskCache {
         }.value
     }
 
-    private func cacheURLs(
+    private nonisolated func cacheURLs(
         for sourceURL: URL,
         prompt: SubjectSegmentationPrompt,
         modelVersion: String,

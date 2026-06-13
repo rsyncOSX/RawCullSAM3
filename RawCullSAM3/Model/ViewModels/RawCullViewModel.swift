@@ -183,6 +183,12 @@ final class RawCullViewModel {
     @ObservationIgnored var sam3MaskHelperController = SAM3MaskHelperController()
     @ObservationIgnored var sam3ModelResourceManager = SAM3ModelResourceManager()
     @ObservationIgnored var sam3SubjectSegmentationActor = SubjectSegmentationActor()
+
+    /// Lightweight per-file mask geometry and quality metadata, built from the
+    /// disk cache after each catalog open. Consumed by badges, filters, and scoring.
+    var maskInventory: [FileItem.ID: SAM3MaskInventoryEntry] = [:]
+    @ObservationIgnored var maskCatalogIndex = SAM3MaskCatalogIndex()
+
     /// In-flight ARW→JPEG extraction or thumbnail load task for the zoom window.
     /// Cancelled when the zoom window closes or a new file is opened for zoom.
     var zoomExtractionTask: Task<Void, Never>?
