@@ -3,6 +3,7 @@
 //  RawCullVerifyTests
 //
 
+import CoreGraphics
 import Foundation
 import RawCullCore
 @testable import RawCullSAM3
@@ -130,7 +131,7 @@ struct SharpnessScoringTests {
     func `concurrent scoreFiles call awaits in flight scoring`() async throws {
         let gate = SharpnessScoringGate()
         let completion = SharpnessScoringCompletionProbe()
-        let model = SharpnessScoringModel { _, _, _, _ in
+        let model = SharpnessScoringModel { _, _, _, _, _ in
             await gate.markStarted()
             await gate.waitUntilReleased()
             return (
@@ -368,6 +369,81 @@ struct FocusNumericHelperTests {
         #expect(abs(b / a - 10) < 0.1)
     }
 
+    // MARK: - SAM subject mask sampling
+
+    @Test(.tags(.smoke))
+    func `SAM subject mask samples masked pixels and detects AF inside`() throws {
+        let width = 20
+        let height = 10
+        let values = (0 ..< width * height).map { idx -> Float in
+            let col = idx % width
+            return col < width / 2 ? Float(idx) / Float(width * height) : 0
+        }
+        let mask = try #require(makeAlphaMask(width: width, height: height) { col, _ in
+            col < width / 2
+        })
+
+        let analysis = try #require(FocusMaskEngine.analyzeSAMSubjectMask(
+            laplacianRedValues: values,
+            width: width,
+            height: height,
+            subjectMask: mask,
+            afPoint: CGPoint(x: 0.25, y: 0.50),
+        ))
+
+        #expect(analysis.samples.count == 100)
+        #expect(abs(analysis.coverage - 0.5) < 0.01)
+        #expect(analysis.afInsideMask == true)
+        #expect(try #require(analysis.score) > 0)
+    }
+
+    @Test(.tags(.smoke))
+    func `SAM subject mask reports AF outside without dropping score`() throws {
+        let width = 20
+        let height = 10
+        let values = (0 ..< width * height).map { Float($0) / Float(width * height) }
+        let mask = try #require(makeAlphaMask(width: width, height: height) { col, _ in
+            col < width / 2
+        })
+
+        let analysis = try #require(FocusMaskEngine.analyzeSAMSubjectMask(
+            laplacianRedValues: values,
+            width: width,
+            height: height,
+            subjectMask: mask,
+            afPoint: CGPoint(x: 0.75, y: 0.50),
+        ))
+
+        #expect(analysis.afInsideMask == false)
+        #expect(try #require(analysis.score) > 0)
+    }
+
+    @Test(.tags(.smoke))
+    func `focus evidence selection can prefer SAM subject`() {
+        let samWins = FocusMaskEngine.focusEvidenceRegion(
+            globalScore: 0.10,
+            saliencyScore: 0.12,
+            afPointScore: nil,
+            samSubjectScore: 0.30,
+            afRegionRadius: 0.06,
+        )
+        let samAndAFAligned = FocusMaskEngine.focusEvidenceRegion(
+            globalScore: 0.10,
+            saliencyScore: 0.12,
+            afPointScore: 0.29,
+            samSubjectScore: 0.30,
+            afRegionRadius: 0.12,
+        )
+
+        #expect(samWins == .samSubject)
+        #expect(samAndAFAligned == .mixed)
+    }
+
+    @Test(.tags(.smoke))
+    func `sharpness scoring signature invalidates for SAM aware scoring`() {
+        #expect(SharpnessScoringSignature.currentAlgorithmVersion == 4)
+    }
+
     // MARK: - Failure classification
 
     @Test(.tags(.smoke))
@@ -402,6 +478,35 @@ struct FocusNumericHelperTests {
         )
         #expect(result == .none)
     }
+}
+
+private func makeAlphaMask(
+    width: Int,
+    height: Int,
+    contains: (Int, Int) -> Bool,
+) -> CGImage? {
+    var pixels = [UInt8](repeating: 0, count: width * height * 4)
+    for row in 0 ..< height {
+        for col in 0 ..< width {
+            let idx = (row * width + col) * 4
+            pixels[idx] = 255
+            pixels[idx + 1] = 255
+            pixels[idx + 2] = 255
+            pixels[idx + 3] = contains(col, row) ? 255 : 0
+        }
+    }
+
+    let colorSpace = CGColorSpaceCreateDeviceRGB()
+    guard let ctx = CGContext(
+        data: &pixels,
+        width: width,
+        height: height,
+        bitsPerComponent: 8,
+        bytesPerRow: width * 4,
+        space: colorSpace,
+        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue,
+    ) else { return nil }
+    return ctx.makeImage()
 }
 
 // MARK: - Aperture hint

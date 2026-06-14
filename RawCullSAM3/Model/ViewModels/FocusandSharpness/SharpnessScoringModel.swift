@@ -3,6 +3,7 @@
 //  RawCull
 //
 
+import CoreGraphics
 import Foundation
 import Observation
 import OSLog
@@ -15,6 +16,7 @@ final class SharpnessScoringModel {
         FocusDetectorConfig,
         Int,
         CGPoint?,
+        CGImage?,
     ) async -> (score: Float?, saliency: SaliencyInfo?, breakdown: SharpnessBreakdown?)
 
     /// Sharpness scores keyed by FileItem.id. Wholesale-replaced at the end
@@ -190,8 +192,9 @@ final class SharpnessScoringModel {
                         var fileConfig = config
                         fileConfig.iso = iso
                         fileConfig.apertureHint = hint
+                        let subjectMask = await SAM3SubjectMaskCacheReader.loadCachedMask(for: file)?.mask
                         let result = if let scoreComputerOverride {
-                            await scoreComputerOverride(url, fileConfig, thumbSize, afPoint)
+                            await scoreComputerOverride(url, fileConfig, thumbSize, afPoint, subjectMask)
                         } else {
                             await engine.computeSharpnessScore(
                                 fromRawURL: url,
@@ -199,6 +202,7 @@ final class SharpnessScoringModel {
                                 thumbnailMaxPixelSize: thumbSize,
                                 afPoint: afPoint,
                                 scoringSource: scoringSource,
+                                subjectMask: subjectMask,
                             )
                         }
                         return (id, result.score, result.saliency, result.breakdown)
@@ -247,8 +251,9 @@ final class SharpnessScoringModel {
                             var fileConfig = config
                             fileConfig.iso = iso
                             fileConfig.apertureHint = hint
+                            let subjectMask = await SAM3SubjectMaskCacheReader.loadCachedMask(for: file)?.mask
                             let result = if let scoreComputerOverride {
-                                await scoreComputerOverride(url, fileConfig, thumbSize, afPoint)
+                                await scoreComputerOverride(url, fileConfig, thumbSize, afPoint, subjectMask)
                             } else {
                                 await engine.computeSharpnessScore(
                                     fromRawURL: url,
@@ -256,6 +261,7 @@ final class SharpnessScoringModel {
                                     thumbnailMaxPixelSize: thumbSize,
                                     afPoint: afPoint,
                                     scoringSource: scoringSource,
+                                    subjectMask: subjectMask,
                                 )
                             }
                             return (id, result.score, result.saliency, result.breakdown)

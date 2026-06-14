@@ -39,6 +39,18 @@ struct CandidateInspectorView: View {
                         if let afPointScore = breakdown.afPointScore {
                             LabeledContent("AF Detail", value: percent(afPointScore))
                         }
+                        if let samSubjectScore = breakdown.samSubjectScore {
+                            LabeledContent("SAM Subject Detail", value: percent(samSubjectScore))
+                        }
+                        if let samMaskCoverage = breakdown.samMaskCoverage {
+                            LabeledContent("SAM Coverage", value: percent(samMaskCoverage))
+                        }
+                        if let afInsideSAMMask = breakdown.afInsideSAMMask {
+                            LabeledContent("AF Inside SAM", value: afInsideSAMMask ? "Yes" : "No")
+                        }
+                        if let samScoringBlend = breakdown.samScoringBlend {
+                            LabeledContent("SAM Blend", value: samScoringBlend)
+                        }
                         LabeledContent("Source", value: breakdown.scoringSource.title)
                         LabeledContent("Blur Gate", value: decimal(breakdown.blurGateSigma))
                         if let subjectLabel = breakdown.subjectLabel {
@@ -80,6 +92,18 @@ struct CandidateInspectorView: View {
                         }
                         if let subjectPatchScore = evidence.scoringSubjectInteriorPatchScore {
                             LabeledContent("Scoring Subject Patch", value: percent(subjectPatchScore))
+                        }
+                        if let samSubjectScore = evidence.samSubjectScore {
+                            LabeledContent("SAM Subject Detail", value: percent(samSubjectScore))
+                        }
+                        if let samMaskCoverage = evidence.samMaskCoverage {
+                            LabeledContent("SAM Coverage", value: percent(samMaskCoverage))
+                        }
+                        if let afInsideSAMMask = evidence.afInsideSAMMask {
+                            LabeledContent("AF Inside SAM", value: afInsideSAMMask ? "Yes" : "No")
+                        }
+                        if let samScoringBlend = evidence.samScoringBlend {
+                            LabeledContent("SAM Blend", value: samScoringBlend)
                         }
                         LabeledContent("Saliency Candidates", value: "\(evidence.saliencyCandidateCount)")
                         if let reason = evidence.saliencySelectionReason {

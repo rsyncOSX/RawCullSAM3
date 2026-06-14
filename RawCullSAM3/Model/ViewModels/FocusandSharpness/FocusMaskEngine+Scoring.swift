@@ -28,6 +28,7 @@ extension FocusMaskEngine {
         thumbnailMaxPixelSize: Int = 512,
         afPoint: CGPoint? = nil,
         scoringSource: SharpnessScoringSource = .embeddedPreview,
+        subjectMask: CGImage? = nil,
     ) async -> (score: Float?, saliency: SaliencyInfo?, breakdown: SharpnessBreakdown?) {
         await Self.runCancellableWorker { [context] in
             guard !Task.isCancelled else { return (nil, nil, nil) }
@@ -49,6 +50,7 @@ extension FocusMaskEngine {
                 afPoint: afPoint,
                 context: context,
                 config: config,
+                subjectMask: subjectMask,
             )
             breakdown?.scoringSource = scoringSource
             return (breakdown?.finalScore, saliency.saliencyInfo, breakdown)
@@ -353,6 +355,95 @@ extension FocusMaskEngine {
         return sqrt(max(0, (sum2 / n) - mean * mean))
     }
 
+    struct SAMSubjectMaskAnalysis: Equatable {
+        let samples: [Float]
+        let score: Float?
+        let microContrast: Float
+        let coverage: Float
+        let afInsideMask: Bool?
+    }
+
+    nonisolated static func analyzeSAMSubjectMask(
+        laplacianRedValues: [Float],
+        width: Int,
+        height: Int,
+        subjectMask: CGImage,
+        afPoint: CGPoint?,
+    ) -> SAMSubjectMaskAnalysis? {
+        guard width > 0,
+              height > 0,
+              laplacianRedValues.count >= width * height,
+              subjectMask.width > 0,
+              subjectMask.height > 0
+        else { return nil }
+
+        let maskAlpha = samMaskAlphaPlane(from: subjectMask)
+        guard maskAlpha.count >= subjectMask.width * subjectMask.height else { return nil }
+
+        @inline(__always)
+        func maskIndexForNormalizedPoint(x: CGFloat, y: CGFloat) -> Int {
+            let clampedX = min(max(x, 0), 0.999_999)
+            let clampedY = min(max(y, 0), 0.999_999)
+            let maskCol = min(subjectMask.width - 1, max(0, Int(clampedX * CGFloat(subjectMask.width))))
+            let maskRow = min(subjectMask.height - 1, max(0, Int(clampedY * CGFloat(subjectMask.height))))
+            return maskRow * subjectMask.width + maskCol
+        }
+
+        let afInsideMask = afPoint.map { point in
+            maskAlpha[maskIndexForNormalizedPoint(x: point.x, y: point.y)] > 0
+        }
+
+        var samples = [Float]()
+        samples.reserveCapacity(width * height / 4)
+        var maskedCount = 0
+        for row in 0 ..< height {
+            if row & 0x3F == 0, Task.isCancelled { return nil }
+            let normalizedY = (CGFloat(row) + 0.5) / CGFloat(height)
+            let base = row * width
+            for col in 0 ..< width {
+                let normalizedX = (CGFloat(col) + 0.5) / CGFloat(width)
+                guard maskAlpha[maskIndexForNormalizedPoint(x: normalizedX, y: normalizedY)] > 0 else { continue }
+                maskedCount += 1
+                let v = laplacianRedValues[base + col]
+                if v.isFinite { samples.append(v) }
+            }
+        }
+
+        guard maskedCount > 0 else { return nil }
+        return SAMSubjectMaskAnalysis(
+            samples: samples,
+            score: samples.count >= 64 ? robustTailScore(samples) : nil,
+            microContrast: microContrast(samples),
+            coverage: Float(maskedCount) / Float(width * height),
+            afInsideMask: afInsideMask,
+        )
+    }
+
+    private nonisolated static func samMaskAlphaPlane(from image: CGImage) -> [UInt8] {
+        let width = image.width
+        let height = image.height
+        guard width > 0, height > 0 else { return [] }
+
+        var pixels = [UInt8](repeating: 0, count: width * height * 4)
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        guard let ctx = CGContext(
+            data: &pixels,
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bytesPerRow: width * 4,
+            space: colorSpace,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue,
+        ) else { return [] }
+
+        ctx.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+        var alpha = [UInt8](repeating: 0, count: width * height)
+        for idx in 0 ..< width * height {
+            alpha[idx] = pixels[idx * 4 + 3]
+        }
+        return alpha
+    }
+
     // MARK: - Scalar scoring
 
     /// Produces a single scalar sharpness score for an image.
@@ -360,15 +451,16 @@ extension FocusMaskEngine {
     /// Pipeline:
     /// 1. `buildAmplifiedLaplacian` → Gaussian pre-blur + Metal Laplacian + gain.
     /// 2. Render to an RGBAf bitmap so each pixel's edge energy is a `Float` in `.r`.
-    /// 3. Collect three sample sets:
+    /// 3. Collect sample sets:
     ///    * **full**: all pixels inside the border inset (Gaussian edge artefacts excluded).
     ///    * **salient**: pixels inside the Vision attention bounding box (if any).
     ///    * **AF**: pixels inside a square of half-size `afRegionRadius`
     ///      centered on the camera's AF point (if any).
+    ///    * **SAM**: pixels inside a cached SAM3 alpha mask (if available).
     /// 4. Each set is reduced to a scalar via `robustTailScore` (p90–p97 band mean).
-    /// 5. Blend:  `score = (1 − w)·full + w·subject`,  where
-    ///    `subject = 0.6·AF + 0.4·saliency` (whichever are present) and
-    ///    `w = config.explicitSalientWeightOverride ?? apertureHint override ?? config.salientWeight`.
+    /// 5. Blend: `score = (1 − w)·full + w·subject`, where SAM3, when present,
+    ///    becomes the primary subject source and AF-local evidence is boosted if
+    ///    the AF point lands inside the SAM mask.
     /// 6. Penalties/bonuses on top of the blend:
     ///    * silhouette penalty if >62 % of subject energy sits in its outer 12 % rim;
     ///    * subject-size bonus `(1 + area · subjectSizeFactor)` for saliency-only;
@@ -377,12 +469,17 @@ extension FocusMaskEngine {
         let finalScore: Float
         let fullScore: Float?
         let salientScore: Float?
+        let effectiveSubjectScore: Float?
         let afScore: Float?
         let afCenterScore: Float?
         let afNeighborhoodScore: Float?
         let afLocalPatchScore: Float?
         let subjectInteriorPatchScore: Float?
         let localDetailScore: Float?
+        let samSubjectScore: Float?
+        let samMaskCoverage: Float?
+        let afInsideSAMMask: Bool?
+        let samScoringBlend: String?
         let subjectMicro: Float
         let evidenceRegion: FocusEvidenceRegion
         let saliencySelection: SaliencySelection
@@ -399,6 +496,7 @@ extension FocusMaskEngine {
         afPoint: CGPoint?,
         context: CIContext,
         config: FocusDetectorConfig,
+        subjectMask: CGImage? = nil,
     ) -> SharpnessBreakdown? {
         guard let analysis = computeSharpnessAnalysis(
             from: inputImage,
@@ -406,19 +504,24 @@ extension FocusMaskEngine {
             afPoint: afPoint,
             context: context,
             config: config,
+            subjectMask: subjectMask,
         ) else { return nil }
 
         return SharpnessBreakdown(
             finalScore: analysis.finalScore,
             globalScore: analysis.fullScore,
-            subjectScore: analysis.salientScore,
+            subjectScore: analysis.effectiveSubjectScore,
             afPointScore: analysis.afScore,
+            samSubjectScore: analysis.samSubjectScore,
+            samMaskCoverage: analysis.samMaskCoverage,
+            afInsideSAMMask: analysis.afInsideSAMMask,
+            samScoringBlend: analysis.samScoringBlend,
             blurGateSigma: analysis.subjectMicro,
             subjectLabel: saliencyDetection.saliencyInfo?.subjectLabel,
             subjectConfidence: saliencyDetection.saliencyInfo?.subjectConfidence,
             focusFailureKind: classifyFocusFailure(
                 globalScore: analysis.fullScore,
-                subjectScore: analysis.salientScore,
+                subjectScore: analysis.effectiveSubjectScore,
                 afPointScore: analysis.afScore,
                 blurGateSigma: analysis.subjectMicro,
             ),
@@ -429,6 +532,10 @@ extension FocusMaskEngine {
                 scoringAFLocalPatchScore: analysis.afLocalPatchScore,
                 scoringSubjectInteriorPatchScore: analysis.subjectInteriorPatchScore,
                 scoringLocalDetailScore: analysis.localDetailScore,
+                samSubjectScore: analysis.samSubjectScore,
+                samMaskCoverage: analysis.samMaskCoverage,
+                afInsideSAMMask: analysis.afInsideSAMMask,
+                samScoringBlend: analysis.samScoringBlend,
                 saliencyCandidateCount: analysis.saliencySelection.candidateCount,
                 winningSaliencyRect: analysis.saliencySelection.winningRegion,
                 saliencySelectionReason: analysis.saliencySelection.reason,
@@ -486,6 +593,7 @@ extension FocusMaskEngine {
         globalScore: Float?,
         saliencyScore: Float?,
         afPointScore: Float?,
+        samSubjectScore: Float? = nil,
         afCenterScore: Float? = nil,
         afNeighborhoodScore: Float? = nil,
         afRegionRadius: Float,
@@ -493,14 +601,15 @@ extension FocusMaskEngine {
         let validGlobal = globalScore.flatMap { $0.isFinite ? $0 : nil }
         let validSaliency = saliencyScore.flatMap { $0.isFinite ? $0 : nil }
         let validAF = afPointScore.flatMap { $0.isFinite ? $0 : nil }
+        let validSAM = samSubjectScore.flatMap { $0.isFinite ? $0 : nil }
         let validAFCenter = afCenterScore.flatMap { $0.isFinite ? $0 : nil }
         let validAFNeighborhood = afNeighborhoodScore.flatMap { $0.isFinite ? $0 : nil }
 
-        guard validGlobal != nil || validSaliency != nil || validAF != nil || validAFCenter != nil || validAFNeighborhood != nil else {
+        guard validGlobal != nil || validSaliency != nil || validAF != nil || validSAM != nil || validAFCenter != nil || validAFNeighborhood != nil else {
             return .none
         }
 
-        let strongestNonLocal = max(validGlobal ?? 0, validSaliency ?? 0, validAF ?? 0)
+        let strongestNonLocal = max(validGlobal ?? 0, validSaliency ?? 0, validAF ?? 0, validSAM ?? 0)
         if let center = validAFCenter, center >= strongestNonLocal * 0.82 {
             return .afCenter
         }
@@ -510,15 +619,15 @@ extension FocusMaskEngine {
         }
 
         if let af = validAF {
-            let strongestOther = max(validGlobal ?? 0, validSaliency ?? 0)
+            let strongestOther = max(validGlobal ?? 0, validSaliency ?? 0, validSAM ?? 0)
             let wildlifeSizedAF = afRegionRadius > 0 && afRegionRadius <= 0.08
             if wildlifeSizedAF, af >= strongestOther * 0.85 {
                 return .afPoint
             }
 
-            if let saliency = validSaliency {
-                let maxSubject = max(af, saliency)
-                let minSubject = min(af, saliency)
+            if let subject = validSAM ?? validSaliency {
+                let maxSubject = max(af, subject)
+                let minSubject = min(af, subject)
                 if maxSubject > 0, minSubject / maxSubject >= 0.92 {
                     return .mixed
                 }
@@ -529,6 +638,7 @@ extension FocusMaskEngine {
             (.afCenter, validAFCenter ?? -.infinity),
             (.afNeighborhood, validAFNeighborhood ?? -.infinity),
             (.afPoint, validAF ?? -.infinity),
+            (.samSubject, validSAM ?? -.infinity),
             (.saliency, validSaliency ?? -.infinity),
             (.global, validGlobal ?? -.infinity)
         ]
@@ -541,6 +651,7 @@ extension FocusMaskEngine {
         afPoint: CGPoint?,
         context: CIContext,
         config: FocusDetectorConfig,
+        subjectMask: CGImage? = nil,
     ) -> SharpnessAnalysis? {
         guard !Task.isCancelled else { return nil }
         guard let boosted = buildScoringLaplacian(from: inputImage, config: config) else { return nil }
@@ -565,6 +676,18 @@ extension FocusMaskEngine {
         @inline(__always)
         func redAt(_ idx: Int) -> Float {
             rgba[idx * 4]
+        }
+
+        let samMaskAnalysis: SAMSubjectMaskAnalysis? = if let subjectMask {
+            Self.analyzeSAMSubjectMask(
+                laplacianRedValues: (0 ..< pixelCount).map { redAt($0) },
+                width: width,
+                height: height,
+                subjectMask: subjectMask,
+                afPoint: afPoint,
+            )
+        } else {
+            nil
         }
 
         // Exclude outer border to avoid Gaussian edge artifacts
@@ -727,18 +850,53 @@ extension FocusMaskEngine {
         // rather than AF silently overriding saliency (the earlier `afScore ?? salientScore`
         // behaviour), which occasionally mis-ranked when the AF point landed on a secondary
         // subject while Vision correctly identified the main one.
-        let broadSubjectScore: Float? = switch (afScore, salientScore) {
+        let legacyBroadSubjectScore: Float? = switch (afScore, salientScore) {
         case let (a?, s?): a * 0.6 + s * 0.4
         case let (a?, nil): a
         case let (nil, s?): s
         default: nil
         }
-        let localBlend = Self.conservativeSubjectScore(
-            broadSubjectScore: broadSubjectScore,
-            afLocalPatchScore: afLocalPatchScore,
-            subjectInteriorPatchScore: subjectInteriorPatchScore,
-        )
-        let effectiveSubjectScore = localBlend.score
+        let samScore = samMaskAnalysis?.score
+        let afInsideSAMMask = samMaskAnalysis?.afInsideMask
+        let broadSubjectScore: Float? = switch (samScore, afScore, salientScore) {
+        case let (sam?, af?, _) where afInsideSAMMask == true:
+            sam * 0.55 + af * 0.45
+        case let (sam?, af?, saliency?):
+            sam * 0.70 + af * 0.15 + saliency * 0.15
+        case let (sam?, af?, nil):
+            sam * 0.80 + af * 0.20
+        case let (sam?, nil, saliency?):
+            sam * 0.80 + saliency * 0.20
+        case let (sam?, nil, nil):
+            sam
+        default:
+            legacyBroadSubjectScore
+        }
+
+        let localDetailScore: Float? = switch (afLocalPatchScore, subjectInteriorPatchScore) {
+        case let (af?, subject?): af * 0.6 + subject * 0.4
+        case let (af?, nil): af
+        case let (nil, subject?): subject
+        default: nil
+        }
+        let localBlendWeight: Float = afInsideSAMMask == true ? 0.35 : 0.25
+        let effectiveSubjectScore: Float? = switch (broadSubjectScore, localDetailScore) {
+        case let (broad?, local?): broad * (1.0 - localBlendWeight) + local * localBlendWeight
+        case let (broad?, nil): broad
+        case let (nil, local?): local
+        default: nil
+        }
+        let samScoringBlend: String? = if samScore != nil {
+            if afInsideSAMMask == true {
+                "SAM + AF local"
+            } else if afInsideSAMMask == false {
+                "SAM subject + fallback AF/saliency"
+            } else {
+                "SAM subject"
+            }
+        } else {
+            nil
+        }
         // Prefer AF analysis for micro-contrast / silhouette because the AF region is
         // usually tighter than the Vision salient union.
         let effectiveAnalysis = afAnalysis ?? salientAnalysis
@@ -747,10 +905,10 @@ extension FocusMaskEngine {
         // above blurGateHigh → 1.0, linearly ramped in between. Replaces an earlier
         // hard σ<0.014 → ×0.12 cliff that false-positived on low-contrast subjects
         // (white bird against white sky, fog, plain-backdrop portraits).
-        let subjectMicro = effectiveAnalysis.map { Self.microContrast($0.samples) } ?? 0
+        let subjectMicro = samMaskAnalysis?.microContrast ?? effectiveAnalysis.map { Self.microContrast($0.samples) } ?? 0
         let hint = config.apertureHint
         let blurAttenuation: Float
-        if let ea = effectiveAnalysis, ea.samples.count >= 64 {
+        if (samMaskAnalysis?.samples.count ?? effectiveAnalysis?.samples.count ?? 0) >= 64 {
             let lo = hint.blurGateLow
             let hi = hint.blurGateHigh
             let span = max(hi - lo, 1e-6)
@@ -812,17 +970,23 @@ extension FocusMaskEngine {
             finalScore: baseScore * blurAttenuation,
             fullScore: fullScore,
             salientScore: salientScore,
+            effectiveSubjectScore: effectiveSubjectScore,
             afScore: afScore,
             afCenterScore: afCenterScore,
             afNeighborhoodScore: afNeighborhoodScore,
             afLocalPatchScore: afLocalPatchScore,
             subjectInteriorPatchScore: subjectInteriorPatchScore,
-            localDetailScore: localBlend.localDetailScore,
+            localDetailScore: localDetailScore,
+            samSubjectScore: samScore,
+            samMaskCoverage: samMaskAnalysis?.coverage,
+            afInsideSAMMask: afInsideSAMMask,
+            samScoringBlend: samScoringBlend,
             subjectMicro: subjectMicro,
             evidenceRegion: Self.focusEvidenceRegion(
                 globalScore: fullScore,
                 saliencyScore: salientScore,
                 afPointScore: afScore,
+                samSubjectScore: samScore,
                 afCenterScore: afCenterScore,
                 afNeighborhoodScore: afNeighborhoodScore,
                 afRegionRadius: config.afRegionRadius,

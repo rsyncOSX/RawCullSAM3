@@ -168,6 +168,9 @@ extension FocusMaskEngine {
         case .afPoint where selection.afRect != nil:
             .afPoint
 
+        case .samSubject where selection.saliencyRect != nil:
+            .samSubject
+
         case .saliency where selection.saliencyRect != nil:
             .saliency
 
@@ -224,7 +227,7 @@ extension FocusMaskEngine {
                 [(afRect, afWeightedSource(for: afRect))]
             } else { [] }
 
-        case .saliency:
+        case .samSubject, .saliency:
             if let saliencyRect = selection.saliencyRect {
                 [(saliencyRect, boostedLaplacian)]
             } else { [] }

@@ -53,6 +53,7 @@ enum FocusEvidenceRegion: String, Codable, Equatable {
     case afCenter
     case afNeighborhood
     case afPoint
+    case samSubject
     case saliency
     case global
     case mixed
@@ -63,6 +64,7 @@ enum FocusEvidenceRegion: String, Codable, Equatable {
         case .afCenter: "AF center"
         case .afNeighborhood: "AF neighborhood"
         case .afPoint: "AF point"
+        case .samSubject: "SAM subject"
         case .saliency: "Saliency"
         case .global: "Global"
         case .mixed: "Mixed"
@@ -74,7 +76,7 @@ enum FocusEvidenceRegion: String, Codable, Equatable {
         case .afCenter, .afNeighborhood, .afPoint:
             true
 
-        case .none, .saliency, .global, .mixed:
+        case .none, .samSubject, .saliency, .global, .mixed:
             false
         }
     }
@@ -183,6 +185,10 @@ struct FocusEvidence: Equatable {
     nonisolated var scoringAFLocalPatchScore: Float?
     nonisolated var scoringSubjectInteriorPatchScore: Float?
     nonisolated var scoringLocalDetailScore: Float?
+    nonisolated var samSubjectScore: Float?
+    nonisolated var samMaskCoverage: Float?
+    nonisolated var afInsideSAMMask: Bool?
+    nonisolated var samScoringBlend: String?
     nonisolated var saliencyCandidateCount: Int
     nonisolated var winningSaliencyRect: CGRect?
     nonisolated var saliencySelectionReason: String?
@@ -206,6 +212,10 @@ struct FocusEvidence: Equatable {
         scoringAFLocalPatchScore: Float? = nil,
         scoringSubjectInteriorPatchScore: Float? = nil,
         scoringLocalDetailScore: Float? = nil,
+        samSubjectScore: Float? = nil,
+        samMaskCoverage: Float? = nil,
+        afInsideSAMMask: Bool? = nil,
+        samScoringBlend: String? = nil,
         saliencyCandidateCount: Int = 0,
         winningSaliencyRect: CGRect? = nil,
         saliencySelectionReason: String? = nil,
@@ -228,6 +238,10 @@ struct FocusEvidence: Equatable {
         self.scoringAFLocalPatchScore = scoringAFLocalPatchScore
         self.scoringSubjectInteriorPatchScore = scoringSubjectInteriorPatchScore
         self.scoringLocalDetailScore = scoringLocalDetailScore
+        self.samSubjectScore = samSubjectScore
+        self.samMaskCoverage = samMaskCoverage
+        self.afInsideSAMMask = afInsideSAMMask
+        self.samScoringBlend = samScoringBlend
         self.saliencyCandidateCount = saliencyCandidateCount
         self.winningSaliencyRect = winningSaliencyRect
         self.saliencySelectionReason = saliencySelectionReason
@@ -239,6 +253,10 @@ struct SharpnessBreakdown: Equatable {
     let globalScore: Float?
     let subjectScore: Float?
     let afPointScore: Float?
+    let samSubjectScore: Float?
+    let samMaskCoverage: Float?
+    let afInsideSAMMask: Bool?
+    let samScoringBlend: String?
     let blurGateSigma: Float
     let subjectLabel: String?
     let subjectConfidence: Float?
@@ -247,4 +265,40 @@ struct SharpnessBreakdown: Equatable {
     var focusMaskVisualThreshold: Float?
     var focusEvidence: FocusEvidence?
     var scoringSource: SharpnessScoringSource = .embeddedPreview
+
+    nonisolated init(
+        finalScore: Float,
+        globalScore: Float?,
+        subjectScore: Float?,
+        afPointScore: Float?,
+        samSubjectScore: Float? = nil,
+        samMaskCoverage: Float? = nil,
+        afInsideSAMMask: Bool? = nil,
+        samScoringBlend: String? = nil,
+        blurGateSigma: Float,
+        subjectLabel: String?,
+        subjectConfidence: Float?,
+        focusFailureKind: FocusFailureKind,
+        focusMaskRegionSource: FocusMaskRegionSource? = nil,
+        focusMaskVisualThreshold: Float? = nil,
+        focusEvidence: FocusEvidence? = nil,
+        scoringSource: SharpnessScoringSource = .embeddedPreview,
+    ) {
+        self.finalScore = finalScore
+        self.globalScore = globalScore
+        self.subjectScore = subjectScore
+        self.afPointScore = afPointScore
+        self.samSubjectScore = samSubjectScore
+        self.samMaskCoverage = samMaskCoverage
+        self.afInsideSAMMask = afInsideSAMMask
+        self.samScoringBlend = samScoringBlend
+        self.blurGateSigma = blurGateSigma
+        self.subjectLabel = subjectLabel
+        self.subjectConfidence = subjectConfidence
+        self.focusFailureKind = focusFailureKind
+        self.focusMaskRegionSource = focusMaskRegionSource
+        self.focusMaskVisualThreshold = focusMaskVisualThreshold
+        self.focusEvidence = focusEvidence
+        self.scoringSource = scoringSource
+    }
 }
