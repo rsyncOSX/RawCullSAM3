@@ -215,7 +215,7 @@ final class RawCullViewModel {
             "RawCull will create missing extracted JPG preview cache images for \(files.count) RAW files in this catalog. Existing cached images will be skipped."
 
         case .createSAM3Masks:
-            "RawCull will start a helper process to create missing SAM3 subject masks for all \(files.count) files in this catalog. Existing cached masks will be skipped. RawCull will restart when the helper completes."
+            "RawCull will start a helper process to create missing SAM3 subject masks for \(sam3MaskCreationTargetDescription). Existing cached masks will be skipped. RawCull will restart when the helper completes."
 
         case .clearRatedFiles: "Are you sure you want to clear all rated images?"
 

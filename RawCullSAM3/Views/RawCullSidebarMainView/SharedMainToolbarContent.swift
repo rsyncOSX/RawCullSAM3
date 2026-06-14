@@ -164,13 +164,17 @@ struct SharedMainToolbarContent: ToolbarContent {
         if viewModel.isCreatingSAM3Masks {
             return "SAM3 mask creation is already running"
         }
-        return "Create SAM3 subject masks for the full selected catalog"
+        let targetFiles = viewModel.sam3MaskCreationTargetFiles
+        if targetFiles.isEmpty {
+            return "Select thumbnails or choose a 2-5 star rating filter to create SAM3 masks"
+        }
+        return "Create SAM3 subject masks for \(viewModel.sam3MaskCreationTargetDescription)"
     }
 
     private var sam3ToolbarIsDisabled: Bool {
         if viewModel.isCreatingSAM3Masks { return true }
         return viewModel.selectedSource == nil ||
-            viewModel.sam3MaskCreationCatalogFiles.isEmpty ||
+            viewModel.sam3MaskCreationTargetFiles.isEmpty ||
             viewModel.creatingthumbnails
     }
 

@@ -91,11 +91,22 @@ struct SAM3ModelResourceManagerTests {
 
         let request = try SAM3MaskHelperController.makeRequest(
             for: catalogURL,
+            targetFiles: [
+                FileItem(
+                    url: catalogURL.appendingPathComponent("selected.ARW"),
+                    name: "selected.ARW",
+                    size: 0,
+                    dateModified: Date(),
+                    exifData: nil,
+                    afFocusNormalized: nil,
+                )
+            ],
             modelResourceManager: manager,
         )
 
         #expect(request.catalogPath == catalogURL.path)
         #expect(request.modelResourcesPath == modelURL.path)
+        #expect(request.selectedFilePaths == [catalogURL.appendingPathComponent("selected.ARW").standardizedFileURL.path])
     }
 
     @Test
@@ -112,6 +123,7 @@ struct SAM3ModelResourceManagerTests {
         #expect(throws: Error.self) {
             try SAM3MaskHelperController.makeRequest(
                 for: catalogURL,
+                targetFiles: [],
                 modelResourceManager: manager,
             )
         }
@@ -136,6 +148,7 @@ struct SAM3ModelResourceManagerTests {
         viewModel.selectedSource = ARWSourceCatalog(name: "Missing Model", url: root)
         viewModel.files = [file]
         viewModel.filteredFiles = [file]
+        viewModel.selectedFileIDs = [file.id]
         viewModel.sam3ModelResourceManager = SAM3ModelResourceManager(
             installedModelDirectory: root.appendingPathComponent("MissingSAM3", isDirectory: true),
             allowsBundledFallback: false,

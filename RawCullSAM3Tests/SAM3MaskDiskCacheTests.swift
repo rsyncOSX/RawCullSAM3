@@ -667,24 +667,74 @@ struct SAM3MaskCreationViewModelTests {
     }
 
     @Test
-    func `candidate files use current rating filter`() throws {
+    func `SAM3 target files use selected thumbnails before rating filter`() throws {
         let root = try makeSAM3CacheTestRoot()
         defer { try? FileManager.default.removeItem(at: root) }
-        let keepSource = try makeSAM3CacheSource(in: root, name: "keep.ARW")
-        let rejectSource = try makeSAM3CacheSource(in: root, name: "reject.ARW")
-        let keep = makeSAM3TestFileItem(url: keepSource)
-        let reject = makeSAM3TestFileItem(url: rejectSource)
+        let selectedSource = try makeSAM3CacheSource(in: root, name: "selected.ARW")
+        let ratedSource = try makeSAM3CacheSource(in: root, name: "rated.ARW")
+        let selected = makeSAM3TestFileItem(url: selectedSource)
+        let rated = makeSAM3TestFileItem(url: ratedSource)
         let viewModel = RawCullViewModel()
 
         viewModel.selectedSource = ARWSourceCatalog(name: "SAM3 Test", url: root)
         viewModel.cullingModel = CullingModel(saveDelayNanoseconds: 0, saveHandler: { _ in })
-        viewModel.filteredFiles = [reject, keep]
-        viewModel.files = [reject, keep]
-        viewModel.updateRating(for: keep, rating: 3)
-        viewModel.updateRating(for: reject, rating: -1)
+        viewModel.filteredFiles = [rated, selected]
+        viewModel.files = [rated, selected]
+        viewModel.updateRating(for: rated, rating: 3)
+        viewModel.updateRating(for: selected, rating: 4)
+        viewModel.ratingFilter = .stars(3)
+        viewModel.selectedFileIDs = [selected.id]
+
+        #expect(viewModel.sam3MaskCreationTargetFiles.map(\.id) == [selected.id])
+    }
+
+    @Test
+    func `SAM3 target files use active star filter in visible order`() throws {
+        let root = try makeSAM3CacheTestRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let firstSource = try makeSAM3CacheSource(in: root, name: "first.ARW")
+        let secondSource = try makeSAM3CacheSource(in: root, name: "second.ARW")
+        let otherSource = try makeSAM3CacheSource(in: root, name: "other.ARW")
+        let first = makeSAM3TestFileItem(url: firstSource)
+        let second = makeSAM3TestFileItem(url: secondSource)
+        let other = makeSAM3TestFileItem(url: otherSource)
+        let viewModel = RawCullViewModel()
+
+        viewModel.selectedSource = ARWSourceCatalog(name: "SAM3 Test", url: root)
+        viewModel.cullingModel = CullingModel(saveDelayNanoseconds: 0, saveHandler: { _ in })
+        viewModel.filteredFiles = [second, first, other]
+        viewModel.files = [first, second, other]
+        viewModel.updateRating(for: first, rating: 3)
+        viewModel.updateRating(for: second, rating: 3)
+        viewModel.updateRating(for: other, rating: 4)
         viewModel.ratingFilter = .stars(3)
 
-        #expect(viewModel.sam3MaskCreationCandidateFiles.map(\.id) == [keep.id])
+        #expect(viewModel.sam3MaskCreationTargetFiles.map(\.id) == [second.id, first.id])
+        #expect(viewModel.sam3MaskCreationCandidateFiles.map(\.id) == [second.id, first.id])
+    }
+
+    @Test
+    func `SAM3 target files are empty for unsupported rating filters`() throws {
+        let root = try makeSAM3CacheTestRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let source = try makeSAM3CacheSource(in: root)
+        let file = makeSAM3TestFileItem(url: source)
+        let viewModel = RawCullViewModel()
+
+        viewModel.selectedSource = ARWSourceCatalog(name: "SAM3 Test", url: root)
+        viewModel.cullingModel = CullingModel(saveDelayNanoseconds: 0, saveHandler: { _ in })
+        viewModel.filteredFiles = [file]
+        viewModel.files = [file]
+        viewModel.updateRating(for: file, rating: 3)
+
+        viewModel.ratingFilter = .all
+        #expect(viewModel.sam3MaskCreationTargetFiles.isEmpty)
+
+        viewModel.ratingFilter = .keepers
+        #expect(viewModel.sam3MaskCreationTargetFiles.isEmpty)
+
+        viewModel.ratingFilter = .rejected
+        #expect(viewModel.sam3MaskCreationTargetFiles.isEmpty)
     }
 
     @Test
@@ -704,6 +754,7 @@ struct SAM3MaskCreationViewModelTests {
         let image = try makeSAM3CacheTestCGImage(width: 18, height: 12)
         let viewModel = RawCullViewModel()
         viewModel.filteredFiles = [file]
+        viewModel.selectedFileIDs = [file.id]
 
         viewModel.startSAM3MaskCreationForFilteredCatalog(
             actor: actor,
@@ -741,6 +792,7 @@ struct SAM3MaskCreationViewModelTests {
         )
         let viewModel = RawCullViewModel()
         viewModel.filteredFiles = [file]
+        viewModel.selectedFileIDs = [file.id]
 
         viewModel.startSAM3MaskCreationForFilteredCatalog(
             actor: actor,

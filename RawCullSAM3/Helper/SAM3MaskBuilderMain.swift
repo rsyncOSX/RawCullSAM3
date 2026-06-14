@@ -15,9 +15,13 @@
                     }
                 }
 
-                let files = await scanCatalog(at: catalogURL)
-                guard !files.isEmpty else {
+                let catalogFiles = await scanCatalog(at: catalogURL)
+                guard !catalogFiles.isEmpty else {
                     throw HelperError.noFilesFound(catalogURL.path)
+                }
+                let files = selectedFiles(from: catalogFiles, request: request)
+                guard !files.isEmpty else {
+                    throw HelperError.noSelectedFilesFound
                 }
 
                 let provider = CoreAISAM3Provider(
@@ -94,6 +98,15 @@
             return files.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
         }
 
+        private nonisolated static func selectedFiles(
+            from files: [FileItem],
+            request: SAM3MaskBuildRequest,
+        ) -> [FileItem] {
+            let requestedPaths = Set(request.selectedFilePaths.map { URL(fileURLWithPath: $0).standardizedFileURL.path })
+            guard !requestedPaths.isEmpty else { return [] }
+            return files.filter { requestedPaths.contains($0.url.standardizedFileURL.path) }
+        }
+
         private nonisolated static func emit(_ event: SAM3MaskBuildEvent) {
             guard let data = try? JSONEncoder().encode(event),
                   let line = String(data: data, encoding: .utf8)
@@ -120,6 +133,7 @@
     private enum HelperError: LocalizedError {
         case missingRequestPath
         case noFilesFound(String)
+        case noSelectedFilesFound
 
         var errorDescription: String? {
             switch self {
@@ -128,6 +142,9 @@
 
             case let .noFilesFound(path):
                 "No supported RAW files were found in catalog: \(path)"
+
+            case .noSelectedFilesFound:
+                "None of the selected SAM3 mask files were found in the catalog."
             }
         }
     }

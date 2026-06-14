@@ -22,13 +22,14 @@ final class SAM3MaskHelperController {
 
     func start(
         catalogURL: URL,
+        targetFiles: [FileItem],
         onEvent: @escaping @MainActor (SAM3MaskBuildEvent) -> Void,
         onExit: @escaping @MainActor (Int32, String?) -> Void,
     ) throws {
         cancel()
 
         let helperURL = try Self.helperExecutableURL()
-        let requestURL = try writeRequest(for: catalogURL)
+        let requestURL = try writeRequest(for: catalogURL, targetFiles: targetFiles)
         let process = Process()
         let outputPipe = Pipe()
         let errorPipe = Pipe()
@@ -156,9 +157,10 @@ final class SAM3MaskHelperController {
         throw HelperControllerError.helperNotFound
     }
 
-    private func writeRequest(for catalogURL: URL) throws -> URL {
+    private func writeRequest(for catalogURL: URL, targetFiles: [FileItem]) throws -> URL {
         let request = try Self.makeRequest(
             for: catalogURL,
+            targetFiles: targetFiles,
             modelResourceManager: modelResourceManager,
         )
         let requestURL = FileManager.default.temporaryDirectory
@@ -171,11 +173,13 @@ final class SAM3MaskHelperController {
 
     static func makeRequest(
         for catalogURL: URL,
+        targetFiles: [FileItem],
         modelResourceManager: SAM3ModelResourceManager = SAM3ModelResourceManager(),
     ) throws -> SAM3MaskBuildRequest {
         guard let modelResourcesURL = modelResourceManager.installedModelURL() else {
             throw HelperControllerError.modelResourcesNotFound
         }
+        let selectedFilePaths = targetFiles.map { $0.url.standardizedFileURL.path }
         return try SAM3MaskBuildRequest(
             catalogBookmark: catalogURL.bookmarkData(
                 options: [.withSecurityScope],
@@ -187,6 +191,7 @@ final class SAM3MaskHelperController {
             maskCachePath: SharedMemoryCache.shared.sam3MaskDiskCache.cacheDirectory.path,
             rawCullAppPath: Bundle.main.bundleURL.path,
             parentProcessID: ProcessInfo.processInfo.processIdentifier,
+            selectedFilePaths: selectedFilePaths,
         )
     }
 }

@@ -9,13 +9,54 @@ import OSLog
 
 extension RawCullViewModel {
     var sam3MaskCreationCandidateFiles: [FileItem] {
-        let candidates = filteredFiles.filter { passesRatingFilter($0) }
-        guard !sharpnessModel.sortBySharpness else { return candidates }
-        return candidates.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        sam3MaskCreationTargetFiles
     }
 
     var sam3MaskCreationCatalogFiles: [FileItem] {
         files.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+    }
+
+    var sam3MaskCreationTargetFiles: [FileItem] {
+        let orderedFiles = sam3MaskCreationOrderedFiles()
+        if !selectedFileIDs.isEmpty {
+            return orderedFiles.filter { selectedFileIDs.contains($0.id) }
+        }
+
+        guard case let .stars(rating) = ratingFilter,
+              (2 ... 5).contains(rating)
+        else { return [] }
+
+        return orderedFiles.filter { getRating(for: $0) == rating }
+    }
+
+    var sam3MaskCreationTargetDescription: String {
+        let count = sam3MaskCreationTargetFiles.count
+        if !selectedFileIDs.isEmpty {
+            return "\(count) selected thumbnail\(count == 1 ? "" : "s")"
+        }
+        if case let .stars(rating) = ratingFilter,
+           (2 ... 5).contains(rating) {
+            return "\(count) \(rating)-star file\(count == 1 ? "" : "s")"
+        }
+        return "no selected thumbnails or active 2-5 star filter"
+    }
+
+    func sam3MaskCreationOrderedFiles() -> [FileItem] {
+        let visibleFiles = filteredFiles.isEmpty ? sam3MaskCreationCatalogFiles : filteredFiles
+        var seenIDs = Set<FileItem.ID>()
+        var orderedFiles: [FileItem] = []
+
+        for file in visibleFiles {
+            if seenIDs.insert(file.id).inserted {
+                orderedFiles.append(file)
+            }
+        }
+
+        for file in sam3MaskCreationCatalogFiles where seenIDs.insert(file.id).inserted {
+            orderedFiles.append(file)
+        }
+
+        return orderedFiles
     }
 
     func fileHandler(_ update: Int) {
@@ -78,7 +119,7 @@ extension RawCullViewModel {
 
     func requestCreateSAM3MasksConfirmation() {
         guard !isCreatingSAM3Masks,
-              !sam3MaskCreationCatalogFiles.isEmpty
+              !sam3MaskCreationTargetFiles.isEmpty
         else { return }
         alertType = .createSAM3Masks
         showingAlert = true
@@ -89,20 +130,21 @@ extension RawCullViewModel {
     }
 
     func startSAM3MaskCreationHelperForCatalog() {
+        let targetFiles = sam3MaskCreationTargetFiles
         guard !isCreatingSAM3Masks,
               let catalogURL = selectedSource?.url,
-              !sam3MaskCreationCatalogFiles.isEmpty
+              !targetFiles.isEmpty
         else { return }
 
         guard sam3ModelResourceManager.installedModelURL() != nil else {
             sam3MaskCreationTask?.cancel()
             sam3MaskCreationProgress = SubjectMaskPrefetchProgress(
                 completed: 0,
-                total: sam3MaskCreationCatalogFiles.count,
+                total: targetFiles.count,
                 cached: 0,
                 generated: 0,
                 failed: 0,
-                currentFileID: sam3MaskCreationCatalogFiles.first?.id,
+                currentFileID: targetFiles.first?.id,
             )
             sam3MaskCreationStatusText = "Could not start SAM3 mask helper: SAM3 model resources are missing. Open Settings > AI to install them."
             isCreatingSAM3Masks = true
@@ -112,11 +154,11 @@ extension RawCullViewModel {
         sam3MaskCreationTask?.cancel()
         sam3MaskCreationProgress = SubjectMaskPrefetchProgress(
             completed: 0,
-            total: sam3MaskCreationCatalogFiles.count,
+            total: targetFiles.count,
             cached: 0,
             generated: 0,
             failed: 0,
-            currentFileID: sam3MaskCreationCatalogFiles.first?.id,
+            currentFileID: targetFiles.first?.id,
         )
         sam3MaskCreationStatusText = "Starting SAM3 mask helper..."
         isCreatingSAM3Masks = true
@@ -124,6 +166,7 @@ extension RawCullViewModel {
         do {
             try sam3MaskHelperController.start(
                 catalogURL: catalogURL,
+                targetFiles: targetFiles,
                 onEvent: { [weak self] event in
                     self?.handleSAM3MaskHelperEvent(event)
                 },

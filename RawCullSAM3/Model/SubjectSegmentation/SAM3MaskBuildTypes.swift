@@ -7,6 +7,7 @@ nonisolated struct SAM3MaskBuildRequest: Codable, Equatable {
     let maskCachePath: String
     let rawCullAppPath: String
     let parentProcessID: Int32
+    let selectedFilePaths: [String]
 }
 
 nonisolated struct SAM3MaskBuildSummary: Codable, Equatable {
