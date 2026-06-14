@@ -141,7 +141,7 @@ final class SimilarityScoringModel {
     var sortBySimilarity: Bool = false
 
     /// Backend selected for the latest indexing pass.
-    var embeddingBackend: SimilarityEmbeddingBackend = preferredEmbeddingBackend()
+    var embeddingBackend: SimilarityEmbeddingBackend = .visionFeaturePrint
 
     var usesCLIPEmbeddings: Bool {
         embeddingBackend == .clip
@@ -170,8 +170,8 @@ final class SimilarityScoringModel {
         let storedCount = clipEmbeddingCount + visionEmbeddingCount
         guard storedCount > 0 else {
             return embeddingBackend == .clip
-                ? "CLIP is installed and will be used for the next similarity index."
-                : "CLIP is unavailable, so Vision feature prints will be used."
+                ? "CLIP is enabled and will be used for the next similarity index."
+                : "Vision feature prints will be used for the next similarity index."
         }
         return "\(clipEmbeddingCount) CLIP, \(visionEmbeddingCount) Vision embeddings stored."
     }
@@ -213,7 +213,7 @@ final class SimilarityScoringModel {
         distances = [:]
         anchorFileID = nil
         sortBySimilarity = false
-        embeddingBackend = Self.preferredEmbeddingBackend()
+        embeddingBackend = .visionFeaturePrint
         burstGroups = []
         burstGroupLookup = [:]
         burstBoundaryEvidence = []
@@ -246,7 +246,10 @@ final class SimilarityScoringModel {
         indexingEstimatedSeconds = 0
         defer { isIndexing = false }
 
-        let preferredBackend = Self.preferredEmbeddingBackend()
+        await SettingsViewModel.shared.ensureLoaded()
+        let preferredBackend = Self.preferredEmbeddingBackend(
+            useCLIPForSimilarity: SettingsViewModel.shared.useCLIPForSimilarity,
+        )
         embeddingBackend = preferredBackend
         let clipProvider = preferredBackend == .clip ? CoreAICLIPProvider() : nil
         Logger.process.info("SimilarityScoringModel: indexing similarity with \(preferredBackend.displayName) backend")
@@ -611,8 +614,9 @@ final class SimilarityScoringModel {
 
     nonisolated static func preferredEmbeddingBackend(
         clipModelURL: URL? = CLIPModelResourceManager.installedModelURL(),
+        useCLIPForSimilarity: Bool = false,
     ) -> SimilarityEmbeddingBackend {
-        clipModelURL == nil ? .visionFeaturePrint : .clip
+        useCLIPForSimilarity && clipModelURL != nil ? .clip : .visionFeaturePrint
     }
 
     nonisolated static func embeddingBackend(for data: Data) -> SimilarityEmbeddingBackend {

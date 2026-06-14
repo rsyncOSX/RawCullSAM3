@@ -33,8 +33,9 @@ struct SimilarityEmbeddingBackendTests {
 
     @Test
     func `preferred backend reports CLIP only when model URL is available`() {
-        #expect(SimilarityScoringModel.preferredEmbeddingBackend(clipModelURL: URL(fileURLWithPath: "/tmp/CLIP")) == .clip)
-        #expect(SimilarityScoringModel.preferredEmbeddingBackend(clipModelURL: nil) == .visionFeaturePrint)
+        #expect(SimilarityScoringModel.preferredEmbeddingBackend(clipModelURL: URL(fileURLWithPath: "/tmp/CLIP"), useCLIPForSimilarity: true) == .clip)
+        #expect(SimilarityScoringModel.preferredEmbeddingBackend(clipModelURL: URL(fileURLWithPath: "/tmp/CLIP"), useCLIPForSimilarity: false) == .visionFeaturePrint)
+        #expect(SimilarityScoringModel.preferredEmbeddingBackend(clipModelURL: nil, useCLIPForSimilarity: true) == .visionFeaturePrint)
     }
 
     @Test

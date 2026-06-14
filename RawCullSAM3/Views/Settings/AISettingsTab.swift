@@ -3,6 +3,9 @@ import SwiftUI
 struct AISettingsTab: View {
     private let sam3ModelResourceManager: SAM3ModelResourceManager
     private let clipModelResourceManager: CLIPModelResourceManager
+    private var settingsManager: SettingsViewModel {
+        SettingsViewModel.shared
+    }
 
     @State private var sam3Status: SAM3ModelStatus = .missing
     @State private var clipStatus: CLIPModelStatus = .missing
@@ -52,9 +55,17 @@ struct AISettingsTab: View {
                         .textSelection(.enabled)
                         .fixedSize(horizontal: false, vertical: true)
 
-                    Text(clipStatus.isInstalled ? "Similarity indexing uses CLIP image embeddings by default. If CLIP inference fails for an image, RawCull falls back to Vision feature prints." : "Similarity indexing currently uses Vision feature prints.")
+                    Toggle(isOn: useCLIPForSimilarityBinding) {
+                        Text("Use CLIP for similarity")
+                            .font(.system(size: 12, weight: .medium))
+                    }
+                    .toggleStyle(.switch)
+                    .disabled(!clipStatus.isInstalled)
+                    .help(clipStatus.isInstalled ? "Use CLIP image embeddings for similarity indexing. If CLIP inference fails for an image, RawCull falls back to Vision feature prints." : "Install a valid CLIP model before enabling CLIP similarity.")
+
+                    Text(similarityBackendMessage)
                         .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(clipStatus.isInstalled ? .green : .secondary)
+                        .foregroundStyle(settingsManager.useCLIPForSimilarity && clipStatus.isInstalled ? .green : .secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
@@ -92,6 +103,33 @@ struct AISettingsTab: View {
         } message: {
             Text("The SAM 3 model download location will be added later. For now, install the model files manually in \(SAM3ModelResourceManager.defaultInstalledModelDirectory().path).")
         }
+    }
+
+    private var useCLIPForSimilarityBinding: Binding<Bool> {
+        Binding(
+            get: {
+                settingsManager.useCLIPForSimilarity && clipStatus.isInstalled
+            },
+            set: { newValue in
+                guard clipStatus.isInstalled else {
+                    settingsManager.useCLIPForSimilarity = false
+                    Task { await settingsManager.saveSettings() }
+                    return
+                }
+                settingsManager.useCLIPForSimilarity = newValue
+                Task { await settingsManager.saveSettings() }
+            },
+        )
+    }
+
+    private var similarityBackendMessage: String {
+        if settingsManager.useCLIPForSimilarity, clipStatus.isInstalled {
+            return "Similarity indexing will use CLIP image embeddings. If CLIP inference fails for an image, RawCull falls back to Vision feature prints."
+        }
+        if clipStatus.isInstalled {
+            return "Similarity indexing currently uses Vision feature prints. Enable CLIP here to use CLIP image embeddings."
+        }
+        return "Similarity indexing currently uses Vision feature prints."
     }
 
     private func statusRow(
@@ -151,5 +189,9 @@ struct AISettingsTab: View {
     private func refreshStatus() {
         sam3Status = sam3ModelResourceManager.modelStatus()
         clipStatus = clipModelResourceManager.modelStatus()
+        if !clipStatus.isInstalled, settingsManager.useCLIPForSimilarity {
+            settingsManager.useCLIPForSimilarity = false
+            Task { await settingsManager.saveSettings() }
+        }
     }
 }

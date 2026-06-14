@@ -88,6 +88,12 @@ final class SettingsViewModel {
     /// Image source used for sharpness scoring (default: embedded camera preview)
     var scoringSource: SharpnessScoringSource = .embeddedPreview
 
+    // MARK: - AI Settings
+
+    /// Use CLIP image embeddings for similarity when the CLIP model is installed.
+    /// Defaults to false so RawCull uses the Vision fallback unless explicitly enabled.
+    var useCLIPForSimilarity: Bool = false
+
     // MARK: - Focus Mask Parameters
 
     /// Pre-blur radius applied before Laplacian (default: 1.92)
@@ -164,6 +170,7 @@ final class SettingsViewModel {
                 self.scoringPhotoType = savedSettings.scoringPhotoType
                 self.scoringQuality = savedSettings.scoringQuality
                 self.scoringSource = savedSettings.scoringSource
+                self.useCLIPForSimilarity = savedSettings.useCLIPForSimilarity
                 self.focusMaskPreBlurRadius = savedSettings.focusMaskPreBlurRadius
                 self.focusMaskThreshold = savedSettings.focusMaskThreshold
                 self.focusMaskEnergyMultiplier = savedSettings.focusMaskEnergyMultiplier
@@ -207,6 +214,7 @@ final class SettingsViewModel {
                 scoringPhotoType: scoringPhotoType,
                 scoringQuality: scoringQuality,
                 scoringSource: scoringSource,
+                useCLIPForSimilarity: useCLIPForSimilarity,
                 focusMaskPreBlurRadius: focusMaskPreBlurRadius,
                 focusMaskThreshold: focusMaskThreshold,
                 focusMaskEnergyMultiplier: focusMaskEnergyMultiplier,
@@ -320,6 +328,7 @@ final class SettingsViewModel {
                 scoringPhotoType: self.scoringPhotoType,
                 scoringQuality: self.scoringQuality,
                 scoringSource: self.scoringSource,
+                useCLIPForSimilarity: self.useCLIPForSimilarity,
                 focusMaskPreBlurRadius: self.focusMaskPreBlurRadius,
                 focusMaskThreshold: self.focusMaskThreshold,
                 focusMaskEnergyMultiplier: self.focusMaskEnergyMultiplier,
@@ -352,6 +361,8 @@ struct SavedSettings: Codable {
     let scoringQuality: SharpnessScoringQuality
     let scoringSource: SharpnessScoringSource
 
+    let useCLIPForSimilarity: Bool
+
     let focusMaskPreBlurRadius: Float
     let focusMaskThreshold: Float
     let focusMaskEnergyMultiplier: Float
@@ -375,6 +386,7 @@ struct SavedSettings: Codable {
         scoringPhotoType: SharpnessPhotoType = .auto,
         scoringQuality: SharpnessScoringQuality = .fast,
         scoringSource: SharpnessScoringSource = .embeddedPreview,
+        useCLIPForSimilarity: Bool = false,
         focusMaskPreBlurRadius: Float = 1.92,
         focusMaskThreshold: Float = 0.46,
         focusMaskEnergyMultiplier: Float = 7.62,
@@ -396,6 +408,7 @@ struct SavedSettings: Codable {
         self.scoringPhotoType = scoringPhotoType
         self.scoringQuality = scoringQuality
         self.scoringSource = scoringSource
+        self.useCLIPForSimilarity = useCLIPForSimilarity
         self.scoringThumbnailMaxPixelSize = SharpnessScoringSizeOption.normalizedPixelSize(
             scoringThumbnailMaxPixelSize,
             for: scoringQuality,
@@ -427,6 +440,7 @@ struct SavedSettings: Codable {
             scoringPhotoType: (try? c.decode(SharpnessPhotoType.self, forKey: .scoringPhotoType)) ?? .auto,
             scoringQuality: scoringQuality,
             scoringSource: (try? c.decode(SharpnessScoringSource.self, forKey: .scoringSource)) ?? .embeddedPreview,
+            useCLIPForSimilarity: (try? c.decode(Bool.self, forKey: .useCLIPForSimilarity)) ?? false,
             focusMaskPreBlurRadius: (try? c.decode(Float.self, forKey: .focusMaskPreBlurRadius)) ?? 1.92,
             focusMaskThreshold: (try? c.decode(Float.self, forKey: .focusMaskThreshold)) ?? 0.46,
             focusMaskEnergyMultiplier: (try? c.decode(Float.self, forKey: .focusMaskEnergyMultiplier)) ?? 7.62,
