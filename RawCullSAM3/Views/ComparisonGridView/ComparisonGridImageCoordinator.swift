@@ -59,11 +59,10 @@ enum ComparisonGridImageCoordinator {
         for file in files {
             guard !Task.isCancelled else { return updatedStates }
             guard let cgImage = updatedStates[file.id]?.cgImage else { continue }
-            let subjectMask: CGImage?
-            if let existing = updatedStates[file.id]?.subjectMask {
-                subjectMask = existing
+            let subjectMask: CGImage? = if let existing = updatedStates[file.id]?.subjectMask {
+                existing
             } else {
-                subjectMask = await SAM3SubjectMaskCacheReader.loadCachedMask(for: file)?.mask
+                await SAM3SubjectMaskCacheReader.loadCachedMask(for: file)?.mask
             }
             updatedStates[file.id]?.subjectMask = subjectMask
             let result = await focusResult(

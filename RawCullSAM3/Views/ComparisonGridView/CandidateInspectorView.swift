@@ -87,7 +87,7 @@ struct CandidateInspectorPresentation: Equatable {
     static func make(context: CandidateInspectorContext) -> Self {
         var sections: [Section] = [
             decisionSummary(context),
-            decisionSignals(context),
+            decisionSignals(context)
         ]
 
         if let subjectSharpness = subjectSharpness(context) {
@@ -108,7 +108,7 @@ struct CandidateInspectorPresentation: Equatable {
             Row(label: "File", value: context.file.name),
             Row(label: "Rank", value: "#\(context.rank)"),
             Row(label: "Overall Score", value: percent(context.candidate.overallScore)),
-            Row(label: "Confidence", value: context.confidence.title),
+            Row(label: "Confidence", value: context.confidence.title)
         ]
 
         if let caution = primaryCaution(for: context) {
@@ -131,7 +131,7 @@ struct CandidateInspectorPresentation: Equatable {
 
     private static func decisionSignals(_ context: CandidateInspectorContext) -> Section {
         var rows = [
-            Row(label: "Sharpness", value: percent(context.candidate.sharpnessComponent)),
+            Row(label: "Sharpness", value: percent(context.candidate.sharpnessComponent))
         ]
         if let burstRelativeSharpness = context.candidate.burstRelativeSharpnessComponent {
             rows.append(Row(label: "Burst-relative", value: percent(burstRelativeSharpness)))
@@ -139,7 +139,7 @@ struct CandidateInspectorPresentation: Equatable {
         rows.append(contentsOf: [
             Row(label: "Focus Point", value: percent(context.candidate.focusPointComponent)),
             Row(label: "Saliency", value: percent(context.candidate.saliencyComponent)),
-            Row(label: "Metadata", value: percent(context.candidate.metadataComponent)),
+            Row(label: "Metadata", value: percent(context.candidate.metadataComponent))
         ])
         return Section(title: "Decision Signals", rows: rows)
     }
@@ -170,7 +170,7 @@ struct CandidateInspectorPresentation: Equatable {
 
         var rows = [
             Row(label: "Source", value: breakdown.scoringSource.title),
-            Row(label: "Blur Gate", value: decimal(breakdown.blurGateSigma)),
+            Row(label: "Blur Gate", value: decimal(breakdown.blurGateSigma))
         ]
         if let globalScore = breakdown.globalScore {
             rows.append(Row(label: "Global Detail", value: percent(globalScore)))

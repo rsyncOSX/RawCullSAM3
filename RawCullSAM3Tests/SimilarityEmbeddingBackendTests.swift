@@ -54,10 +54,10 @@ struct SimilarityEmbeddingBackendTests {
         let far = makeSimilarityTestFile("far.ARW")
         let missing = makeSimilarityTestFile("missing.ARW")
         let model = SimilarityScoringModel()
-        model.embeddings = [
-            anchor.id: try #require(SimilarityEmbeddingEnvelope.encodeCLIP([1, 0, 0])),
-            near.id: try #require(SimilarityEmbeddingEnvelope.encodeCLIP([0.95, 0.05, 0])),
-            far.id: try #require(SimilarityEmbeddingEnvelope.encodeCLIP([0, 1, 0])),
+        model.embeddings = try [
+            anchor.id: #require(SimilarityEmbeddingEnvelope.encodeCLIP([1, 0, 0])),
+            near.id: #require(SimilarityEmbeddingEnvelope.encodeCLIP([0.95, 0.05, 0])),
+            far.id: #require(SimilarityEmbeddingEnvelope.encodeCLIP([0, 1, 0]))
         ]
 
         await model.rankSimilar(to: anchor.id, using: [anchor, near, far, missing])

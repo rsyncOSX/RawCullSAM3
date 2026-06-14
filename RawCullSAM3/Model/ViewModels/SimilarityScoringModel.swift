@@ -22,7 +22,7 @@ private let kEstimationWindowSize = 10
 
 // MARK: - Embeddings
 
-nonisolated enum SimilarityEmbeddingBackend: String, Codable, Sendable {
+nonisolated enum SimilarityEmbeddingBackend: String, Codable {
     case clip
     case visionFeaturePrint
 
@@ -34,7 +34,7 @@ nonisolated enum SimilarityEmbeddingBackend: String, Codable, Sendable {
     }
 }
 
-nonisolated struct SimilarityEmbeddingEnvelope: Codable, Equatable, Sendable {
+nonisolated struct SimilarityEmbeddingEnvelope: Codable, Equatable {
     static let currentVersion = 1
 
     let version: Int
@@ -100,7 +100,7 @@ nonisolated struct SimilarityEmbeddingEnvelope: Codable, Equatable, Sendable {
     }
 }
 
-nonisolated struct SimilarityIndexResult: Sendable {
+nonisolated struct SimilarityIndexResult {
     let embeddingData: Data
     let clipLabel: String?
     let clipConfidence: Float?
@@ -623,9 +623,9 @@ final class SimilarityScoringModel {
         SimilarityEmbeddingEnvelope.decode(from: data)?.backend ?? .visionFeaturePrint
     }
 
-    nonisolated static func embeddingBackendCounts<S: Sequence>(
-        for dataSequence: S,
-    ) -> (clip: Int, vision: Int) where S.Element == Data {
+    nonisolated static func embeddingBackendCounts(
+        for dataSequence: some Sequence<Data>,
+    ) -> (clip: Int, vision: Int) {
         var clip = 0
         var vision = 0
         for data in dataSequence {
@@ -683,9 +683,9 @@ final class SimilarityScoringModel {
             return .vision(observation)
         }
         guard let observation = try? NSKeyedUnarchiver.unarchivedObject(
-                  ofClass: VNFeaturePrintObservation.self,
-                  from: data,
-              )
+            ofClass: VNFeaturePrintObservation.self,
+            from: data,
+        )
         else { return nil }
         observations[id] = observation
         return .vision(observation)

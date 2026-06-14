@@ -25,7 +25,7 @@ struct ComparisonCandidateInspectorTests {
             "Burst-relative",
             "SAM Blend",
             "AF Inside SAM",
-            "SAM Subject Detail",
+            "SAM Subject Detail"
         ])
         #expect(summary?.values.contains("Top two are close") == true)
         #expect(summary?.labels.contains("Rating") == false)
@@ -47,7 +47,7 @@ struct ComparisonCandidateInspectorTests {
     }
 
     @Test(.tags(.smoke))
-    func `subject and technical details are grouped below decision signals`() {
+    func `subject and technical details are grouped below decision signals`() throws {
         let context = makeInspectorContext(breakdown: makeSAMSharpnessBreakdown())
 
         let presentation = CandidateInspectorPresentation.make(context: context)
@@ -59,11 +59,11 @@ struct ComparisonCandidateInspectorTests {
             "Decision Summary",
             "Decision Signals",
             "Subject Sharpness",
-            "Technical Details",
+            "Technical Details"
         ])
         #expect(subjectIndex != nil)
         #expect(technicalIndex != nil)
-        #expect(subjectIndex! < technicalIndex!)
+        #expect(try #require(subjectIndex) < technicalIndex!)
         #expect(presentation.section("Subject Sharpness")?.labels.contains("SAM Subject Detail") == true)
         #expect(presentation.section("Technical Details")?.labels.contains("Evidence Coverage") == true)
         #expect(presentation.section("Technical Details")?.labels.contains("Silhouette Penalty") == true)
@@ -125,7 +125,7 @@ private func makeInspectorContext(
                 isSecondBest: false,
                 isManualWinner: false,
                 isSelected: true,
-            ),
+            )
         ],
         groupReasons: [],
         groupCautions: [],

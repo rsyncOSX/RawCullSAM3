@@ -4,7 +4,7 @@ import CoreGraphics
 import Foundation
 import OSLog
 
-nonisolated struct CLIPImageAnalysis: Sendable {
+nonisolated struct CLIPImageAnalysis {
     let embedding: [Float]
     let label: String?
     let confidence: Float?
@@ -42,7 +42,7 @@ actor CoreAICLIPProvider {
             inputs: [
                 model.imageInputName: imageInput,
                 model.inputIDsInputName: tokenInput,
-                model.attentionMaskInputName: attentionMaskInput,
+                model.attentionMaskInputName: attentionMaskInput
             ],
         )
         if let embeddingOutput = outputs.remove(model.imageEmbedsOutputName)?.ndArray {
@@ -94,9 +94,9 @@ actor CoreAICLIPProvider {
         let logitsPerImageOutputName = try Self.requiredOutputName("logits_per_image", in: descriptor.outputNames)
         let textEmbedsOutputName = try Self.requiredOutputName("text_embeds", in: descriptor.outputNames)
 
-        guard case .ndArray(let imageDescriptor) = descriptor.inputDescriptor(of: imageInputName),
-              case .ndArray(let inputIDsDescriptor) = descriptor.inputDescriptor(of: inputIDsInputName),
-              case .ndArray(let attentionMaskDescriptor) = descriptor.inputDescriptor(of: attentionMaskInputName)
+        guard case let .ndArray(imageDescriptor) = descriptor.inputDescriptor(of: imageInputName),
+              case let .ndArray(inputIDsDescriptor) = descriptor.inputDescriptor(of: inputIDsInputName),
+              case let .ndArray(attentionMaskDescriptor) = descriptor.inputDescriptor(of: attentionMaskInputName)
         else {
             throw CLIPProviderError.invalidModel("CLIP inputs are not NDArrays.")
         }
@@ -160,7 +160,7 @@ actor CoreAICLIPProvider {
                 inputs: [
                     model.imageInputName: imageInput,
                     model.inputIDsInputName: tokenInput,
-                    model.attentionMaskInputName: attentionMaskInput,
+                    model.attentionMaskInputName: attentionMaskInput
                 ],
             )
             guard let textOutput = outputs.remove(model.textEmbedsOutputName)?.ndArray else {
@@ -295,7 +295,7 @@ actor CoreAICLIPProvider {
         let labels = Self.zeroShotLabels
         return stride(from: 0, to: labels.count, by: batchSize).map { start in
             let end = min(start + batchSize, labels.count)
-            let batchLabels = Array(labels[start..<end])
+            let batchLabels = Array(labels[start ..< end])
             var prompts = batchLabels.map { "a photo of \($0.prompt)" }
             if prompts.count < batchSize {
                 prompts.append(contentsOf: Array(repeating: "a photo", count: batchSize - prompts.count))
@@ -345,7 +345,7 @@ actor CoreAICLIPProvider {
         .init(display: "car", prompt: "a car"),
         .init(display: "aircraft", prompt: "an aircraft"),
         .init(display: "building", prompt: "a building"),
-        .init(display: "food", prompt: "food"),
+        .init(display: "food", prompt: "food")
     ]
 
     private nonisolated static func preprocessCLIPImage(
@@ -377,7 +377,7 @@ actor CoreAICLIPProvider {
         let mean: [Float] = [0.48145466, 0.4578275, 0.40821073]
         let std: [Float] = [0.26862954, 0.26130258, 0.27577711]
 
-        for pixel in 0..<count {
+        for pixel in 0 ..< count {
             let offset = pixel * bytesPerPixel
             let r = Float(rgba[offset]) / 255.0
             let g = Float(rgba[offset + 1]) / 255.0
@@ -406,7 +406,7 @@ actor CoreAICLIPProvider {
     ) {
         var view = array.mutableView(as: T.self)
         view.withUnsafeMutablePointer { pointer, _, _ in
-            for index in 0..<count {
+            for index in 0 ..< count {
                 pointer[index] = generator(index)
             }
         }
@@ -418,8 +418,10 @@ actor CoreAICLIPProvider {
             case .float16:
                 return flattenNDArray(array, as: Float16.self)
         #endif
+
         case .float32:
             return flattenNDArray(array, as: Float.self)
+
         default:
             return []
         }
@@ -432,9 +434,9 @@ actor CoreAICLIPProvider {
         guard rowCount > 0, values.count >= rowCount else { return [] }
         let rowSize = values.count / rowCount
         guard rowSize > 0 else { return [] }
-        return (0..<rowCount).map { row in
+        return (0 ..< rowCount).map { row in
             let start = row * rowSize
-            return Array(values[start..<(start + rowSize)])
+            return Array(values[start ..< (start + rowSize)])
         }
     }
 
@@ -445,7 +447,7 @@ actor CoreAICLIPProvider {
         let total = array.shape.reduce(1, *)
         var result = [Float](repeating: 0, count: total)
         array.view(as: T.self).withUnsafePointer { pointer, _, _ in
-            for index in 0..<total {
+            for index in 0 ..< total {
                 result[index] = Float(pointer[index])
             }
         }
@@ -473,7 +475,7 @@ actor CoreAICLIPProvider {
         let assets: [String: String]
     }
 
-    private struct CLIPZeroShotLabel: Sendable {
+    private struct CLIPZeroShotLabel {
         let display: String
         let prompt: String
     }
@@ -492,11 +494,13 @@ enum CLIPProviderError: Error, CustomStringConvertible {
     var description: String {
         switch self {
         case .missingModel:
-            return "CLIP model resources are not installed."
+            "CLIP model resources are not installed."
+
         case let .invalidModel(message):
-            return message
+            message
+
         case .imagePreprocessingFailed:
-            return "CLIP image preprocessing failed."
+            "CLIP image preprocessing failed."
         }
     }
 }

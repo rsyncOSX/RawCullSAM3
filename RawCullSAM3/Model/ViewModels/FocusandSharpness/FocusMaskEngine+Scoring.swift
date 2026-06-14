@@ -861,14 +861,19 @@ extension FocusMaskEngine {
         let broadSubjectScore: Float? = switch (samScore, afScore, salientScore) {
         case let (sam?, af?, _) where afInsideSAMMask == true:
             sam * 0.55 + af * 0.45
+
         case let (sam?, af?, saliency?):
             sam * 0.70 + af * 0.15 + saliency * 0.15
+
         case let (sam?, af?, nil):
             sam * 0.80 + af * 0.20
+
         case let (sam?, nil, saliency?):
             sam * 0.80 + saliency * 0.20
+
         case let (sam?, nil, nil):
             sam
+
         default:
             legacyBroadSubjectScore
         }
