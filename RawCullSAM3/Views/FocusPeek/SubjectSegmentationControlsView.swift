@@ -206,7 +206,7 @@ struct SubjectMaskToggleButton: View {
         if showSubjectMask {
             return "sparkles.square.filled.on.square"
         }
-        return maskAvailable ? "sparkles.square.on.square" : "sparkle.magnifyingglass"
+        return maskAvailable ? "sparkle.magnifyingglass" : "sparkle.magnifyingglass"
     }
 
     private var helpText: String {
