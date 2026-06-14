@@ -25,6 +25,13 @@ private let kEstimationWindowSize = 10
 nonisolated enum SimilarityEmbeddingBackend: String, Codable, Sendable {
     case clip
     case visionFeaturePrint
+
+    var displayName: String {
+        switch self {
+        case .clip: "CLIP"
+        case .visionFeaturePrint: "Vision"
+        }
+    }
 }
 
 nonisolated struct SimilarityEmbeddingEnvelope: Codable, Equatable, Sendable {
@@ -130,6 +137,35 @@ final class SimilarityScoringModel {
         embeddingBackend == .clip
     }
 
+    /// Counts of the actual embedding payloads currently held in memory. These
+    /// make CLIP fallback visible when the selected backend differs from storage.
+    var clipEmbeddingCount: Int = 0
+    var visionEmbeddingCount: Int = 0
+
+    var embeddingBackendStatusText: String {
+        let storedCount = clipEmbeddingCount + visionEmbeddingCount
+        guard storedCount > 0 else {
+            return "Backend: \(embeddingBackend.displayName) ready"
+        }
+        if clipEmbeddingCount == storedCount {
+            return "Backend: CLIP"
+        }
+        if visionEmbeddingCount == storedCount {
+            return embeddingBackend == .clip ? "Backend: Vision fallback" : "Backend: Vision"
+        }
+        return "Backend: mixed"
+    }
+
+    var embeddingBackendDetailText: String {
+        let storedCount = clipEmbeddingCount + visionEmbeddingCount
+        guard storedCount > 0 else {
+            return embeddingBackend == .clip
+                ? "CLIP is installed and will be used for the next similarity index."
+                : "CLIP is unavailable, so Vision feature prints will be used."
+        }
+        return "\(clipEmbeddingCount) CLIP, \(visionEmbeddingCount) Vision embeddings stored."
+    }
+
     // MARK: Burst grouping
 
     /// Burst groups computed by sequential distance clustering.
@@ -160,6 +196,8 @@ final class SimilarityScoringModel {
         _groupingTask?.cancel()
         _groupingTask = nil
         embeddings = [:]
+        clipEmbeddingCount = 0
+        visionEmbeddingCount = 0
         distances = [:]
         anchorFileID = nil
         sortBySimilarity = false
@@ -199,6 +237,7 @@ final class SimilarityScoringModel {
         let preferredBackend = Self.preferredEmbeddingBackend()
         embeddingBackend = preferredBackend
         let clipProvider = preferredBackend == .clip ? CoreAICLIPProvider() : nil
+        Logger.process.info("SimilarityScoringModel: indexing similarity with \(preferredBackend.displayName) backend")
 
         // Separate files that need embedding from those already done for the active backend.
         let toIndex = files.filter { file in
@@ -282,7 +321,10 @@ final class SimilarityScoringModel {
                 for (id, data) in localEmbeddings {
                     self.embeddings[id] = data
                 }
-                Logger.process.debugMessageOnly("SimilarityScoringModel: indexed \(localEmbeddings.count)/\(toIndex.count) files")
+                self.refreshEmbeddingBackendCounts()
+                Logger.process.info(
+                    "SimilarityScoringModel: indexed \(localEmbeddings.count)/\(toIndex.count) files using \(preferredBackend.displayName); stored \(self.clipEmbeddingCount) CLIP and \(self.visionEmbeddingCount) Vision embeddings",
+                )
             }
         }
 
@@ -449,6 +491,7 @@ final class SimilarityScoringModel {
 
     func applyCachedBurstAnalysis(_ snapshot: BurstAnalysisCacheSnapshot) {
         embeddings = snapshot.embeddings
+        refreshEmbeddingBackendCounts()
         burstGroups = snapshot.groups
         burstBoundaryEvidence = snapshot.boundaryEvidence
         burstGroupLookup = Dictionary(uniqueKeysWithValues: snapshot.groups.flatMap { group in
@@ -462,6 +505,12 @@ final class SimilarityScoringModel {
         )
         _adjacentDistanceCacheSignature = 0
         burstModeActive = !snapshot.groups.isEmpty
+    }
+
+    private func refreshEmbeddingBackendCounts() {
+        let counts = Self.embeddingBackendCounts(for: embeddings.values)
+        clipEmbeddingCount = counts.clip
+        visionEmbeddingCount = counts.vision
     }
 
     // MARK: - Static helpers (nonisolated, used from detached tasks)
@@ -533,6 +582,23 @@ final class SimilarityScoringModel {
 
     nonisolated static func embeddingBackend(for data: Data) -> SimilarityEmbeddingBackend {
         SimilarityEmbeddingEnvelope.decode(from: data)?.backend ?? .visionFeaturePrint
+    }
+
+    nonisolated static func embeddingBackendCounts<S: Sequence>(
+        for dataSequence: S,
+    ) -> (clip: Int, vision: Int) where S.Element == Data {
+        var clip = 0
+        var vision = 0
+        for data in dataSequence {
+            switch embeddingBackend(for: data) {
+            case .clip:
+                clip += 1
+
+            case .visionFeaturePrint:
+                vision += 1
+            }
+        }
+        return (clip, vision)
     }
 
     nonisolated static func distance(from lhs: DecodedSimilarityEmbedding, to rhs: DecodedSimilarityEmbedding) -> Float? {

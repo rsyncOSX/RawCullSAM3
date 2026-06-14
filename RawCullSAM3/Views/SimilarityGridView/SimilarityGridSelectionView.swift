@@ -52,6 +52,8 @@ struct SimilarityGridSelectionView: View {
 
             Divider().frame(height: 16)
 
+            backendStatusLabel
+
             Button {
                 runWithAutoScoring { await viewModel.indexSimilarity() }
             } label: {
@@ -117,6 +119,8 @@ struct SimilarityGridSelectionView: View {
                 )
 
                 Divider().frame(height: 16)
+
+                backendStatusLabel
 
                 HStack(spacing: 4) {
                     Slider(
@@ -229,6 +233,20 @@ struct SimilarityGridSelectionView: View {
                 Text("Calibrating focus-mask threshold, please wait...")
             }
         }
+    }
+
+    private var backendStatusLabel: some View {
+        Label {
+            Text(viewModel.similarityModel.embeddingBackendStatusText)
+                .font(.caption2.monospacedDigit())
+        } icon: {
+            Image(systemName: viewModel.similarityModel.usesCLIPEmbeddings ? "cpu" : "eye")
+        }
+        .foregroundStyle(viewModel.similarityModel.usesCLIPEmbeddings ? .blue : .secondary)
+        .labelStyle(.titleAndIcon)
+        .help(viewModel.similarityModel.embeddingBackendDetailText)
+        .accessibilityLabel("Similarity \(viewModel.similarityModel.embeddingBackendStatusText)")
+        .accessibilityHint(viewModel.similarityModel.embeddingBackendDetailText)
     }
 
     private func reviewQueueButton(
