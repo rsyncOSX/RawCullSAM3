@@ -102,7 +102,7 @@ CLIP_ASSET ?= clip-vit-base-patch32_float16_static.aimodel
 
 .DEFAULT_GOAL := release
 
-release: build-release verify-release-model
+release: build-release verify-release-model verify-clip-model
 
 debug: build-debug verify-debug-model
 
