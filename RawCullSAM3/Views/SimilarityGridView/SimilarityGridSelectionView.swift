@@ -65,7 +65,7 @@ struct SimilarityGridSelectionView: View {
             }
             .font(.caption)
             .disabled(isIndexing || burstAnalysisIsBusy || viewModel.files.isEmpty)
-            .help("Compute visual feature embeddings for all images in this catalog")
+            .help("Compute CLIP embeddings for all images in this catalog when installed, with Vision feature-print fallback")
 
             if isIndexing {
                 Button(role: .cancel) {

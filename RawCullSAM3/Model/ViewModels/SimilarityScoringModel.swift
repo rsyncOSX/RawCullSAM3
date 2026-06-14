@@ -20,6 +20,79 @@ private let kSubjectMismatchPenalty: Float = 0.10
 private let kMinimumSamplesBeforeEstimation = 10
 private let kEstimationWindowSize = 10
 
+// MARK: - Embeddings
+
+nonisolated enum SimilarityEmbeddingBackend: String, Codable, Sendable {
+    case clip
+    case visionFeaturePrint
+}
+
+nonisolated struct SimilarityEmbeddingEnvelope: Codable, Equatable, Sendable {
+    static let currentVersion = 1
+
+    let version: Int
+    let backend: SimilarityEmbeddingBackend
+    let dimensions: Int
+    let values: [Float]
+
+    init(
+        version: Int = Self.currentVersion,
+        backend: SimilarityEmbeddingBackend,
+        dimensions: Int,
+        values: [Float],
+    ) {
+        self.version = version
+        self.backend = backend
+        self.dimensions = dimensions
+        self.values = values
+    }
+
+    static func clip(_ values: [Float]) -> Self {
+        let normalizedValues = normalized(values)
+        return Self(
+            backend: .clip,
+            dimensions: normalizedValues.count,
+            values: normalizedValues,
+        )
+    }
+
+    static func encodeCLIP(_ values: [Float]) -> Data? {
+        try? JSONEncoder().encode(clip(values))
+    }
+
+    static func decode(from data: Data) -> Self? {
+        guard let envelope = try? JSONDecoder().decode(Self.self, from: data),
+              envelope.version == Self.currentVersion,
+              envelope.dimensions == envelope.values.count,
+              !envelope.values.isEmpty
+        else {
+            return nil
+        }
+        return envelope
+    }
+
+    static func normalized(_ values: [Float]) -> [Float] {
+        let magnitude = sqrt(values.reduce(Float(0)) { partial, value in
+            partial + value * value
+        })
+        guard magnitude.isFinite, magnitude > 0 else {
+            return values
+        }
+        return values.map { $0 / magnitude }
+    }
+
+    static func cosineDistance(_ lhs: [Float], _ rhs: [Float]) -> Float? {
+        guard lhs.count == rhs.count, !lhs.isEmpty else { return nil }
+        let left = normalized(lhs)
+        let right = normalized(rhs)
+        let dot = zip(left, right).reduce(Float(0)) { partial, pair in
+            partial + pair.0 * pair.1
+        }
+        guard dot.isFinite else { return nil }
+        return max(0, min(2, 1 - dot))
+    }
+}
+
 // MARK: - Model
 
 @Observable @MainActor
@@ -102,8 +175,9 @@ final class SimilarityScoringModel {
         indexingEstimatedSeconds = 0
     }
 
-    /// Compute Vision feature-print embeddings for all files using thumbnail-resolution
-    /// images (same thumbnail size used by sharpness scoring).
+    /// Compute similarity embeddings for all files using thumbnail-resolution
+    /// images (same thumbnail size used by sharpness scoring). CLIP is preferred
+    /// when installed; Vision feature prints are used as the fallback backend.
     /// Already-embedded files are skipped for efficiency.
     func indexFiles(_ files: [FileItem], thumbnailMaxPixelSize: Int = 512) async {
         guard !files.isEmpty else { return }
@@ -114,8 +188,14 @@ final class SimilarityScoringModel {
         indexingEstimatedSeconds = 0
         defer { isIndexing = false }
 
-        // Separate files that need embedding from those already done.
-        let toIndex = files.filter { embeddings[$0.id] == nil }
+        let preferredBackend = Self.preferredEmbeddingBackend()
+        let clipProvider = preferredBackend == .clip ? CoreAICLIPProvider() : nil
+
+        // Separate files that need embedding from those already done for the active backend.
+        let toIndex = files.filter { file in
+            guard let data = embeddings[file.id] else { return true }
+            return Self.embeddingBackend(for: data) != preferredBackend
+        }
         if toIndex.isEmpty {
             indexingProgress = files.count
             return
@@ -132,8 +212,14 @@ final class SimilarityScoringModel {
                 while active < maxConcurrent, let file = iterator.next() {
                     let url = file.url
                     let id = file.id
+                    let provider = clipProvider
                     group.addTask(priority: .userInitiated) {
-                        let data = await Self.computeEmbedding(url: url, maxPixelSize: thumbSize)
+                        let data = await Self.computeEmbedding(
+                            url: url,
+                            maxPixelSize: thumbSize,
+                            preferredBackend: preferredBackend,
+                            clipProvider: provider,
+                        )
                         return (id, data)
                     }
                     active += 1
@@ -168,8 +254,14 @@ final class SimilarityScoringModel {
                     if let file = iterator.next() {
                         let url = file.url
                         let id = file.id
+                        let provider = clipProvider
                         group.addTask(priority: .userInitiated) {
-                            let data = await Self.computeEmbedding(url: url, maxPixelSize: thumbSize)
+                            let data = await Self.computeEmbedding(
+                                url: url,
+                                maxPixelSize: thumbSize,
+                                preferredBackend: preferredBackend,
+                                clipProvider: provider,
+                            )
                             return (id, data)
                         }
                         active += 1
@@ -226,26 +318,16 @@ final class SimilarityScoringModel {
         let mismatchPenalty = kSubjectMismatchPenalty
 
         let result: [UUID: Float]? = await Task.detached(priority: .userInitiated) {
-            // Unarchive the anchor inside the detached task so no NSObject crosses
-            // actor boundaries; anchorData (Data) is Sendable.
-            guard let anchor = try? NSKeyedUnarchiver.unarchivedObject(
-                ofClass: VNFeaturePrintObservation.self,
-                from: anchorData,
-            ) else {
-                Logger.process.warning("SimilarityScoringModel: failed to unarchive anchor embedding")
+            guard let anchor = Self.decodedEmbedding(from: anchorData) else {
+                Logger.process.warning("SimilarityScoringModel: failed to decode anchor embedding")
                 return nil
             }
 
             var r: [UUID: Float] = [:]
             for (id, data) in snapshot where id != anchorID {
-                guard let obs = try? NSKeyedUnarchiver.unarchivedObject(
-                    ofClass: VNFeaturePrintObservation.self,
-                    from: data,
-                ) else { continue }
-
-                var d: Float = 0
-                // VNFeaturePrintObservation.computeDistance(_:to:) throws; skip on error.
-                guard (try? anchor.computeDistance(&d, to: obs)) != nil else { continue }
+                guard let candidate = Self.decodedEmbedding(from: data),
+                      var d = Self.distance(from: anchor, to: candidate)
+                else { continue }
 
                 // Apply a small saliency-subject mismatch penalty so images of a
                 // different subject type are ranked slightly lower, while keeping
@@ -375,9 +457,15 @@ final class SimilarityScoringModel {
 
     // MARK: - Static helpers (nonisolated, used from detached tasks)
 
-    /// Decode a thumbnail from a Sony ARW file and compute a Vision feature print.
-    /// Returns the archived Data for the VNFeaturePrintObservation, or nil on failure.
-    nonisolated static func computeEmbedding(url: URL, maxPixelSize: Int) async -> Data? {
+    /// Decode a thumbnail from a Sony ARW file and compute a similarity embedding.
+    /// Returns a typed CLIP envelope when CLIP succeeds, otherwise a legacy archived
+    /// VNFeaturePrintObservation fallback.
+    nonisolated static func computeEmbedding(
+        url: URL,
+        maxPixelSize: Int,
+        preferredBackend: SimilarityEmbeddingBackend = preferredEmbeddingBackend(),
+        clipProvider: CoreAICLIPProvider? = nil,
+    ) async -> Data? {
         await Task.detached(priority: .userInitiated) {
             guard let cgImage = await decodeRawParserKitThumbnail(at: url, maxPixelSize: maxPixelSize)
                 ?? decodeThumbnail(at: url, maxPixelSize: maxPixelSize)
@@ -386,20 +474,18 @@ final class SimilarityScoringModel {
                 return nil
             }
 
-            let request = VNGenerateImageFeaturePrintRequest()
-            request.revision = VNGenerateImageFeaturePrintRequestRevision2
-
-            request.imageCropAndScaleOption = .scaleFill
-            let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
-            do {
-                try handler.perform([request])
-            } catch {
-                Logger.process.warning("SimilarityScoringModel: Vision feature-print request failed for \(url.lastPathComponent): \(error)")
-                return nil
+            if preferredBackend == .clip, let clipProvider {
+                do {
+                    let embedding = try await clipProvider.imageEmbedding(for: cgImage)
+                    if let data = SimilarityEmbeddingEnvelope.encodeCLIP(embedding) {
+                        return data
+                    }
+                } catch {
+                    Logger.process.warning("SimilarityScoringModel: CLIP embedding failed for \(url.lastPathComponent), falling back to Vision: \(String(describing: error))")
+                }
             }
 
-            guard let obs = request.results?.first as? VNFeaturePrintObservation else { return nil }
-            return try? NSKeyedArchiver.archivedData(withRootObject: obs, requiringSecureCoding: true)
+            return visionFeaturePrintEmbedding(for: cgImage, fileName: url.lastPathComponent)
         }.value
     }
 
@@ -420,32 +506,75 @@ final class SimilarityScoringModel {
             let key = BurstPairKey.cacheKey(previousID: previousID, currentID: currentID)
             if distances[key] != nil { continue }
 
-            guard let previous = observation(for: previousID, embeddings: embeddings, observations: &observations),
-                  let current = observation(for: currentID, embeddings: embeddings, observations: &observations)
+            guard let previous = decodedEmbedding(for: previousID, embeddings: embeddings, observations: &observations),
+                  let current = decodedEmbedding(for: currentID, embeddings: embeddings, observations: &observations),
+                  let distance = distance(from: previous, to: current)
             else { continue }
-
-            var distance: Float = 0
-            guard (try? previous.computeDistance(&distance, to: current)) != nil else { continue }
             distances[key] = distance
         }
 
         return distances
     }
 
-    private nonisolated static func observation(
+    nonisolated static func preferredEmbeddingBackend(
+        clipModelURL: URL? = CLIPModelResourceManager.installedModelURL(),
+    ) -> SimilarityEmbeddingBackend {
+        clipModelURL == nil ? .visionFeaturePrint : .clip
+    }
+
+    nonisolated static func embeddingBackend(for data: Data) -> SimilarityEmbeddingBackend {
+        SimilarityEmbeddingEnvelope.decode(from: data)?.backend ?? .visionFeaturePrint
+    }
+
+    nonisolated static func distance(from lhs: DecodedSimilarityEmbedding, to rhs: DecodedSimilarityEmbedding) -> Float? {
+        switch (lhs, rhs) {
+        case let (.clip(left), .clip(right)):
+            return SimilarityEmbeddingEnvelope.cosineDistance(left, right)
+
+        case let (.vision(left), .vision(right)):
+            var distance: Float = 0
+            guard (try? left.computeDistance(&distance, to: right)) != nil else { return nil }
+            return distance
+
+        case (.clip, .vision), (.vision, .clip):
+            return nil
+        }
+    }
+
+    nonisolated static func decodedEmbedding(from data: Data) -> DecodedSimilarityEmbedding? {
+        if let envelope = SimilarityEmbeddingEnvelope.decode(from: data),
+           envelope.backend == .clip {
+            return .clip(envelope.values)
+        }
+        guard let observation = try? NSKeyedUnarchiver.unarchivedObject(
+            ofClass: VNFeaturePrintObservation.self,
+            from: data,
+        ) else {
+            return nil
+        }
+        return .vision(observation)
+    }
+
+    private nonisolated static func decodedEmbedding(
         for id: UUID,
         embeddings: [UUID: Data],
         observations: inout [UUID: VNFeaturePrintObservation],
-    ) -> VNFeaturePrintObservation? {
-        if let observation = observations[id] { return observation }
-        guard let data = embeddings[id],
-              let observation = try? NSKeyedUnarchiver.unarchivedObject(
+    ) -> DecodedSimilarityEmbedding? {
+        guard let data = embeddings[id] else { return nil }
+        if let envelope = SimilarityEmbeddingEnvelope.decode(from: data),
+           envelope.backend == .clip {
+            return .clip(envelope.values)
+        }
+        if let observation = observations[id] {
+            return .vision(observation)
+        }
+        guard let observation = try? NSKeyedUnarchiver.unarchivedObject(
                   ofClass: VNFeaturePrintObservation.self,
                   from: data,
               )
         else { return nil }
         observations[id] = observation
-        return observation
+        return .vision(observation)
     }
 
     private nonisolated func cacheSignature(fileIDs: [UUID], embeddingsCount: Int) -> Int {
@@ -481,4 +610,28 @@ final class SimilarityScoringModel {
             qualityCost: 4,
         )
     }
+
+    private nonisolated static func visionFeaturePrintEmbedding(
+        for cgImage: CGImage,
+        fileName: String,
+    ) -> Data? {
+        let request = VNGenerateImageFeaturePrintRequest()
+        request.revision = VNGenerateImageFeaturePrintRequestRevision2
+        request.imageCropAndScaleOption = .scaleFill
+        let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
+        do {
+            try handler.perform([request])
+        } catch {
+            Logger.process.warning("SimilarityScoringModel: Vision feature-print request failed for \(fileName): \(error)")
+            return nil
+        }
+
+        guard let observation = request.results?.first as? VNFeaturePrintObservation else { return nil }
+        return try? NSKeyedArchiver.archivedData(withRootObject: observation, requiringSecureCoding: true)
+    }
+}
+
+nonisolated enum DecodedSimilarityEmbedding {
+    case clip([Float])
+    case vision(VNFeaturePrintObservation)
 }
