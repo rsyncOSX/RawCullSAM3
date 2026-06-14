@@ -1,7 +1,15 @@
-# SAM3 Core AI Model
+# Core AI Model Resources
 
-Place the local SAM3 Core AI model resource for development here, or install it
-for app/runtime use at:
+Place local Core AI model resources for development here, or install them for
+app/runtime use under:
+
+```text
+$(HOME)/Library/Containers/no.blogspot.RawCullSAM3/Data/Library/Application Support/RawCullSAM3/Models
+```
+
+## SAM3
+
+Install SAM3 at:
 
 ```text
 $(HOME)/Library/Containers/no.blogspot.RawCullSAM3/Data/Library/Application Support/RawCullSAM3/Models/SAM3
@@ -47,3 +55,36 @@ make sam3-use-asset ASSET=<generated-file>.aimodelc
 `make sam3-compile` defaults to `SAM3_COMPILE_ARCH=h16c` for the local Apple M4
 development machine. Use `make sam3-compile SAM3_COMPILE_ARCH=<arch>` for a
 different target, or `make sam3-compile-all` for every supported architecture.
+
+## CLIP
+
+Generate the CLIP Core AI bundle with:
+
+```sh
+make clip-export
+```
+
+This exports `openai/clip-vit-base-patch32` as:
+
+```text
+RawCullSAM3/Resources/Models/CLIP/metadata.json
+RawCullSAM3/Resources/Models/CLIP/clip-vit-base-patch32_float16_static.aimodel
+RawCullSAM3/Resources/Models/CLIP/clip-vit-base-patch32_float16_static_source.aimodel
+RawCullSAM3/Resources/Models/CLIP/tokenizer/tokenizer.json
+```
+
+Install CLIP for local app/runtime use with:
+
+```sh
+make install-clip-model
+```
+
+The installed bundle path is:
+
+```text
+$(HOME)/Library/Containers/no.blogspot.RawCullSAM3/Data/Library/Application Support/RawCullSAM3/Models/CLIP
+```
+
+The default export uses static shapes: one image and two padded text prompts.
+For retrieval workflows that need variable image/text batch counts, run the
+exporter directly with `--dynamic`.

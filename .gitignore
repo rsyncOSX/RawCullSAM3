@@ -73,6 +73,7 @@ __pycache__/
 
 # Local Core AI model artifacts
 RawCullSAM3/Resources/Models/SAM3/
+RawCullSAM3/Resources/Models/CLIP/
 RawCullSAM3/Resources/Models/sam3_float16/
 !RawCullSAM3/Resources/Models/README.md
 

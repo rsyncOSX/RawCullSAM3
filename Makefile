@@ -96,6 +96,9 @@ SAM3_INSTALL_DIR ?= $(HOME)/Library/Containers/no.blogspot.RawCullSAM3/Data/Libr
 SAM3_COMPILE_ARCH ?= h16c
 SAM3_ASSET ?= sam3_float16.aimodel
 SAM3_GPU_ASSET ?= sam3_float16_source.gpu.aimodelc
+CLIP_BUNDLE_DIR = RawCullSAM3/Resources/Models/CLIP
+CLIP_INSTALL_DIR ?= $(HOME)/Library/Containers/no.blogspot.RawCullSAM3/Data/Library/Application Support/RawCullSAM3/Models/CLIP
+CLIP_ASSET ?= clip-vit-base-patch32_float16_static.aimodel
 
 .DEFAULT_GOAL := release
 
@@ -136,6 +139,15 @@ verify-model:
 	test -e "$(SAM3_INSTALL_DIR)/$$SAM3_INSTALLED_ASSET" || (echo "Missing installed SAM3 asset: $$SAM3_INSTALLED_ASSET" && exit 1); \
 	echo "SAM3 model installed at $(SAM3_INSTALL_DIR) using $$SAM3_INSTALLED_ASSET"
 
+verify-clip-model:
+	@test -d "$(CLIP_INSTALL_DIR)" || (echo "Missing installed CLIP bundle: $(CLIP_INSTALL_DIR)" && exit 1)
+	@test -f "$(CLIP_INSTALL_DIR)/metadata.json" || (echo "Missing installed CLIP metadata.json" && exit 1)
+	@test -f "$(CLIP_INSTALL_DIR)/tokenizer/tokenizer.json" || (echo "Missing installed CLIP tokenizer/tokenizer.json" && exit 1)
+	@CLIP_INSTALLED_ASSET="$$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1])).get("assets", {}).get("main", ""))' "$(CLIP_INSTALL_DIR)/metadata.json")"; \
+	test -n "$$CLIP_INSTALLED_ASSET" || (echo "Installed CLIP metadata.json does not define assets.main" && exit 1); \
+	test -e "$(CLIP_INSTALL_DIR)/$$CLIP_INSTALLED_ASSET" || (echo "Missing installed CLIP asset: $$CLIP_INSTALLED_ASSET" && exit 1); \
+	echo "CLIP model installed at $(CLIP_INSTALL_DIR) using $$CLIP_INSTALLED_ASSET"
+
 install-sam3-model:
 	@test -d "$(SAM3_BUNDLE_DIR)" || (echo "Missing local SAM3 bundle: $(SAM3_BUNDLE_DIR)" && exit 1)
 	@test -f "$(SAM3_BUNDLE_DIR)/metadata.json" || (echo "Missing local SAM3 metadata.json" && exit 1)
@@ -143,11 +155,24 @@ install-sam3-model:
 	@rsync -a --exclude .DS_Store "$(SAM3_BUNDLE_DIR)/" "$(SAM3_INSTALL_DIR)/"
 	@$(MAKE) verify-model
 
+install-clip-model:
+	@test -d "$(CLIP_BUNDLE_DIR)" || (echo "Missing local CLIP bundle: $(CLIP_BUNDLE_DIR)" && exit 1)
+	@test -f "$(CLIP_BUNDLE_DIR)/metadata.json" || (echo "Missing local CLIP metadata.json" && exit 1)
+	@mkdir -p "$$(dirname "$(CLIP_INSTALL_DIR)")"
+	@rsync -a --exclude .DS_Store "$(CLIP_BUNDLE_DIR)/" "$(CLIP_INSTALL_DIR)/"
+	@$(MAKE) verify-clip-model
+
 sam3-export:
 	uv run tools/export_sam3.py --dtype float16 --overwrite
 
+clip-export:
+	uv run tools/export_clip.py --dtype float16 --overwrite
+
 sam3-compile:
 	xcrun coreai-build compile $(SAM3_BUNDLE_DIR)/sam3_float16_source.aimodel --platform macOS --architecture $(SAM3_COMPILE_ARCH) --output $(SAM3_BUNDLE_DIR)
+
+clip-compile:
+	xcrun coreai-build compile $(CLIP_BUNDLE_DIR)/clip-vit-base-patch32_float16_static_source.aimodel --platform macOS --architecture $(SAM3_COMPILE_ARCH) --output $(CLIP_BUNDLE_DIR)
 
 sam3-compile-gpu:
 	xcrun coreai-build compile $(SAM3_BUNDLE_DIR)/sam3_float16_source.aimodel --platform macOS --preferred-compute gpu --output $(SAM3_BUNDLE_DIR)/$(SAM3_GPU_ASSET)
@@ -176,6 +201,6 @@ print-release-app:
 print-debug-app:
 	@find "$(DERIVED_DATA_ROOT)" -path "*/Build/Products/Debug/$(APP).app" -not -path "*/Index.noindex/*" -type d -print -quit
 
-.PHONY: release debug build-release build-debug verify-release-model verify-debug-model verify-model install-sam3-model \
-	sam3-export sam3-compile sam3-compile-gpu sam3-compile-all sam3-use-asset clean test-smoke test-full test-performance \
+.PHONY: release debug build-release build-debug verify-release-model verify-debug-model verify-model verify-clip-model install-sam3-model install-clip-model \
+	sam3-export clip-export sam3-compile clip-compile sam3-compile-gpu sam3-compile-all sam3-use-asset clean test-smoke test-full test-performance \
 	print-release-app print-debug-app
