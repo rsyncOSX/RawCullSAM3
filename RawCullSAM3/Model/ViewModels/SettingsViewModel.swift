@@ -120,7 +120,7 @@ final class SettingsViewModel {
         }
         let appSupport = FileManager.default
             .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        let appFolder = appSupport.appendingPathComponent("RawCull", isDirectory: true)
+        let appFolder = appSupport.appendingPathComponent("RawCullSAM3", isDirectory: true)
         return appFolder.appendingPathComponent(settingsFileName)
     }
 

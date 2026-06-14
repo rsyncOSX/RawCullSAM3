@@ -110,7 +110,7 @@ actor BurstAnalysisCache {
             let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
                 ?? FileManager.default.temporaryDirectory
             self.cacheDirectory = base
-                .appendingPathComponent("RawCull", isDirectory: true)
+                .appendingPathComponent("RawCullSAM3", isDirectory: true)
                 .appendingPathComponent("BurstAnalysis", isDirectory: true)
         }
     }
