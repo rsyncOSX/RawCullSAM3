@@ -51,6 +51,7 @@ extension FocusMaskEngine {
         scale: CGFloat,
         config: FocusDetectorConfig,
         afPoint: CGPoint? = nil,
+        subjectMask: CGImage? = nil,
     ) async -> (mask: CGImage?, saliency: SaliencyInfo?, breakdown: SharpnessBreakdown?) {
         let context = self.context
 
@@ -68,6 +69,7 @@ extension FocusMaskEngine {
                 afPoint: afPoint,
                 context: context,
                 config: config,
+                subjectMask: subjectMask,
             )
             guard !Task.isCancelled else { return (nil, nil, nil) }
             let maskResult = Self.buildFocusMask(

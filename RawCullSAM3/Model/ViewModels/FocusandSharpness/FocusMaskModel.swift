@@ -35,6 +35,7 @@ final class FocusMaskModel {
         scale: CGFloat,
         configOverride: FocusDetectorConfig? = nil,
         afPoint: CGPoint? = nil,
+        subjectMask: CGImage? = nil,
     ) async -> (mask: CGImage?, saliency: SaliencyInfo?, breakdown: SharpnessBreakdown?) {
         let config = configOverride ?? self.config
         return await engine.generateFocusMaskWithBreakdown(
@@ -42,6 +43,7 @@ final class FocusMaskModel {
             scale: scale,
             config: config,
             afPoint: afPoint,
+            subjectMask: subjectMask,
         )
     }
 

@@ -59,7 +59,19 @@ enum ComparisonGridImageCoordinator {
         for file in files {
             guard !Task.isCancelled else { return updatedStates }
             guard let cgImage = updatedStates[file.id]?.cgImage else { continue }
-            let result = await focusResult(for: file, cgImage: cgImage, viewModel: viewModel)
+            let subjectMask: CGImage?
+            if let existing = updatedStates[file.id]?.subjectMask {
+                subjectMask = existing
+            } else {
+                subjectMask = await SAM3SubjectMaskCacheReader.loadCachedMask(for: file)?.mask
+            }
+            updatedStates[file.id]?.subjectMask = subjectMask
+            let result = await focusResult(
+                for: file,
+                cgImage: cgImage,
+                subjectMask: subjectMask,
+                viewModel: viewModel,
+            )
             guard !Task.isCancelled else { return updatedStates }
             updatedStates[file.id]?.focusMask = result.mask
             updatedStates[file.id]?.sharpnessBreakdown = result.breakdown
@@ -100,7 +112,6 @@ enum ComparisonGridImageCoordinator {
             isLoading: false,
         )
         await populateFocusMask(in: &state, for: file, viewModel: viewModel)
-        await populateSubjectMask(in: &state, for: file)
         return state
     }
 
@@ -110,23 +121,23 @@ enum ComparisonGridImageCoordinator {
         viewModel: RawCullViewModel,
     ) async {
         guard let cgImage = state.cgImage else { return }
-        let result = await focusResult(for: file, cgImage: cgImage, viewModel: viewModel)
+        let subjectMask = await SAM3SubjectMaskCacheReader.loadCachedMask(for: file)?.mask
+        state.subjectMask = subjectMask
+        let result = await focusResult(
+            for: file,
+            cgImage: cgImage,
+            subjectMask: subjectMask,
+            viewModel: viewModel,
+        )
         state.focusMask = result.mask
         state.sharpnessBreakdown = result.breakdown
         persist(result: result, for: file.id, viewModel: viewModel)
     }
 
-    private static func populateSubjectMask(
-        in state: inout ComparisonImageState,
-        for file: FileItem,
-    ) async {
-        guard state.cgImage != nil else { return }
-        state.subjectMask = await SAM3SubjectMaskCacheReader.loadCachedMask(for: file)?.mask
-    }
-
     private static func focusResult(
         for file: FileItem,
         cgImage: CGImage,
+        subjectMask: CGImage?,
         viewModel: RawCullViewModel,
     ) async -> ComparisonFocusMaskResult {
         let downscaled = cgImage.downscaled(toWidth: 1024)
@@ -136,6 +147,7 @@ enum ComparisonGridImageCoordinator {
             scale: 1.0,
             configOverride: config,
             afPoint: file.afFocusNormalized,
+            subjectMask: subjectMask,
         )
     }
 
