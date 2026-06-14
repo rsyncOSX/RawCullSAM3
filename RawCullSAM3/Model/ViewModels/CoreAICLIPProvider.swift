@@ -4,20 +4,32 @@ import CoreGraphics
 import Foundation
 import OSLog
 
+nonisolated struct CLIPImageAnalysis: Sendable {
+    let embedding: [Float]
+    let label: String?
+    let confidence: Float?
+}
+
 actor CoreAICLIPProvider {
     private let resourcesURL: URL?
     private var loadedModel: LoadedCLIPModel?
+    private var labelEmbeddings: [(label: String, embedding: [Float])]?
 
     init(resourcesURL: URL? = CLIPModelResourceManager.installedModelURL()) {
         self.resourcesURL = resourcesURL
     }
 
     func imageEmbedding(for image: CGImage) async throws -> [Float] {
+        try await imageAnalysis(for: image).embedding
+    }
+
+    func imageAnalysis(for image: CGImage) async throws -> CLIPImageAnalysis {
         let model = try await loadModel()
         let imageInput = try Self.makeImageInput(
             image,
             descriptor: model.imageDescriptor,
         )
+        var imageEmbedding: [Float]?
         let tokenInput = try Self.makeTokenInput(
             model.dummyTokens,
             descriptor: model.inputIDsDescriptor,
@@ -33,14 +45,21 @@ actor CoreAICLIPProvider {
                 model.attentionMaskInputName: attentionMaskInput,
             ],
         )
-        guard let embeddingOutput = outputs.remove(model.imageEmbedsOutputName)?.ndArray else {
-            throw CLIPProviderError.invalidModel("CLIP output \(model.imageEmbedsOutputName) is missing.")
+        if let embeddingOutput = outputs.remove(model.imageEmbedsOutputName)?.ndArray {
+            imageEmbedding = Self.flattenAsFloat(embeddingOutput)
         }
-        let values = Self.flattenAsFloat(embeddingOutput)
-        guard !values.isEmpty else {
+
+        guard let values = imageEmbedding, !values.isEmpty else {
             throw CLIPProviderError.invalidModel("CLIP image embedding output is empty.")
         }
-        return SimilarityEmbeddingEnvelope.normalized(values)
+        let normalizedEmbedding = SimilarityEmbeddingEnvelope.normalized(values)
+        let labels = try await loadLabelEmbeddings(for: model)
+        let best = Self.bestLabel(for: normalizedEmbedding, labels: labels)
+        return CLIPImageAnalysis(
+            embedding: normalizedEmbedding,
+            label: best?.label,
+            confidence: best?.confidence,
+        )
     }
 
     private func loadModel() async throws -> LoadedCLIPModel {
@@ -72,6 +91,8 @@ actor CoreAICLIPProvider {
         let inputIDsInputName = try Self.requiredInputName("input_ids", in: descriptor.inputNames)
         let attentionMaskInputName = try Self.requiredInputName("attention_mask", in: descriptor.inputNames)
         let imageEmbedsOutputName = try Self.requiredOutputName("image_embeds", in: descriptor.outputNames)
+        let logitsPerImageOutputName = try Self.requiredOutputName("logits_per_image", in: descriptor.outputNames)
+        let textEmbedsOutputName = try Self.requiredOutputName("text_embeds", in: descriptor.outputNames)
 
         guard case .ndArray(let imageDescriptor) = descriptor.inputDescriptor(of: imageInputName),
               case .ndArray(let inputIDsDescriptor) = descriptor.inputDescriptor(of: inputIDsInputName),
@@ -101,13 +122,58 @@ actor CoreAICLIPProvider {
             inputIDsInputName: inputIDsInputName,
             attentionMaskInputName: attentionMaskInputName,
             imageEmbedsOutputName: imageEmbedsOutputName,
+            logitsPerImageOutputName: logitsPerImageOutputName,
+            textEmbedsOutputName: textEmbedsOutputName,
             imageDescriptor: imageDescriptor,
             inputIDsDescriptor: inputIDsDescriptor,
             attentionMaskDescriptor: attentionMaskDescriptor,
+            tokenizer: tokenizer,
+            textBatchSize: textBatchSize,
+            sequenceLength: sequenceLength,
             dummyTokens: dummyTokens,
         )
         loadedModel = loaded
         return loaded
+    }
+
+    private func loadLabelEmbeddings(
+        for model: LoadedCLIPModel,
+    ) async throws -> [(label: String, embedding: [Float])] {
+        if let labelEmbeddings {
+            return labelEmbeddings
+        }
+
+        var embeddings: [(label: String, embedding: [Float])] = []
+        let imageInput = try Self.makeBlankImageInput(descriptor: model.imageDescriptor)
+        let attentionMaskInput = try Self.makeAttentionMaskInput(descriptor: model.attentionMaskDescriptor)
+
+        for batch in Self.labelPromptBatches(
+            tokenizer: model.tokenizer,
+            batchSize: model.textBatchSize,
+            sequenceLength: model.sequenceLength,
+        ) {
+            let tokenInput = try Self.makeTokenInput(
+                batch.tokens,
+                descriptor: model.inputIDsDescriptor,
+            )
+            var outputs = try await model.function.run(
+                inputs: [
+                    model.imageInputName: imageInput,
+                    model.inputIDsInputName: tokenInput,
+                    model.attentionMaskInputName: attentionMaskInput,
+                ],
+            )
+            guard let textOutput = outputs.remove(model.textEmbedsOutputName)?.ndArray else {
+                throw CLIPProviderError.invalidModel("CLIP output \(model.textEmbedsOutputName) is missing.")
+            }
+            let rows = Self.flattenRowsAsFloat(textOutput)
+            for (index, label) in batch.labels.enumerated() where index < rows.count {
+                embeddings.append((label, SimilarityEmbeddingEnvelope.normalized(rows[index])))
+            }
+        }
+
+        labelEmbeddings = embeddings
+        return embeddings
     }
 
     private nonisolated static func specializationOptions() -> SpecializationOptions {
@@ -168,6 +234,31 @@ actor CoreAICLIPProvider {
         return array
     }
 
+    private nonisolated static func makeBlankImageInput(
+        descriptor: NDArrayDescriptor,
+    ) throws -> NDArray {
+        let shape = descriptor.shape
+        let batchSize = shape[0]
+        let channels = shape[1]
+        let height = shape[2]
+        let width = shape[3]
+        guard batchSize == 1, channels == 3 else {
+            throw CLIPProviderError.invalidModel("Expected CLIP image input shape [1, 3, H, W], got \(shape).")
+        }
+        let pixels = [Float](repeating: 0, count: channels * height * width)
+        var array = NDArray(descriptor: descriptor)
+        if descriptor.scalarType == .float16 {
+            #if !((os(macOS) || targetEnvironment(macCatalyst)) && arch(x86_64))
+                fillNDArray(&array, as: Float16.self, with: pixels.map(Float16.init))
+            #else
+                throw CLIPProviderError.invalidModel("Float16 CLIP input is not supported on this platform.")
+            #endif
+        } else {
+            fillNDArray(&array, as: Float.self, with: pixels)
+        }
+        return array
+    }
+
     private nonisolated static func makeTokenInput(
         _ tokens: [[Int32]],
         descriptor: NDArrayDescriptor,
@@ -195,6 +286,67 @@ actor CoreAICLIPProvider {
         fillNDArray(&array, as: Int32.self, count: batchSize * sequenceLength) { _ in 1 }
         return array
     }
+
+    private nonisolated static func labelPromptBatches(
+        tokenizer: CLIPTokenizer,
+        batchSize: Int,
+        sequenceLength: Int,
+    ) -> [CLIPPromptBatch] {
+        let labels = Self.zeroShotLabels
+        return stride(from: 0, to: labels.count, by: batchSize).map { start in
+            let end = min(start + batchSize, labels.count)
+            let batchLabels = Array(labels[start..<end])
+            var prompts = batchLabels.map { "a photo of \($0.prompt)" }
+            if prompts.count < batchSize {
+                prompts.append(contentsOf: Array(repeating: "a photo", count: batchSize - prompts.count))
+            }
+            return CLIPPromptBatch(
+                labels: batchLabels.map(\.display),
+                tokens: prompts.map { tokenizer.encode($0, contextLength: sequenceLength) },
+            )
+        }
+    }
+
+    private nonisolated static func bestLabel(
+        for imageEmbedding: [Float],
+        labels: [(label: String, embedding: [Float])],
+    ) -> (label: String, confidence: Float)? {
+        let scoredLabels = labels.compactMap { label, embedding -> (label: String, score: Float)? in
+            guard imageEmbedding.count == embedding.count else { return nil }
+            let score = zip(imageEmbedding, embedding).reduce(Float(0)) { partial, pair in
+                partial + pair.0 * pair.1
+            }
+            return (label, score)
+        }
+        guard let best = scoredLabels.max(by: { $0.score < $1.score }) else { return nil }
+        let maxScore = scoredLabels.map(\.score).max() ?? best.score
+        let expScores = scoredLabels.map { exp(Double($0.score - maxScore)) }
+        let denominator = expScores.reduce(0, +)
+        guard denominator.isFinite, denominator > 0 else {
+            return (best.label, 0)
+        }
+        let bestIndex = scoredLabels.firstIndex { $0.label == best.label && $0.score == best.score } ?? 0
+        return (best.label, Float(expScores[bestIndex] / denominator))
+    }
+
+    private nonisolated static let zeroShotLabels: [CLIPZeroShotLabel] = [
+        .init(display: "bird", prompt: "a bird"),
+        .init(display: "animal", prompt: "an animal"),
+        .init(display: "person", prompt: "a person"),
+        .init(display: "dog", prompt: "a dog"),
+        .init(display: "cat", prompt: "a cat"),
+        .init(display: "horse", prompt: "a horse"),
+        .init(display: "insect", prompt: "an insect"),
+        .init(display: "flower", prompt: "a flower"),
+        .init(display: "tree", prompt: "a tree"),
+        .init(display: "landscape", prompt: "a landscape"),
+        .init(display: "water", prompt: "water"),
+        .init(display: "boat", prompt: "a boat"),
+        .init(display: "car", prompt: "a car"),
+        .init(display: "aircraft", prompt: "an aircraft"),
+        .init(display: "building", prompt: "a building"),
+        .init(display: "food", prompt: "food"),
+    ]
 
     private nonisolated static func preprocessCLIPImage(
         _ image: CGImage,
@@ -273,6 +425,19 @@ actor CoreAICLIPProvider {
         }
     }
 
+    private nonisolated static func flattenRowsAsFloat(_ array: NDArray) -> [[Float]] {
+        let values = flattenAsFloat(array)
+        guard array.shape.count >= 2 else { return values.isEmpty ? [] : [values] }
+        let rowCount = array.shape[0]
+        guard rowCount > 0, values.count >= rowCount else { return [] }
+        let rowSize = values.count / rowCount
+        guard rowSize > 0 else { return [] }
+        return (0..<rowCount).map { row in
+            let start = row * rowSize
+            return Array(values[start..<(start + rowSize)])
+        }
+    }
+
     private nonisolated static func flattenNDArray<T: BinaryFloatingPoint & BitwiseCopyable>(
         _ array: NDArray,
         as _: T.Type,
@@ -293,14 +458,29 @@ actor CoreAICLIPProvider {
         let inputIDsInputName: String
         let attentionMaskInputName: String
         let imageEmbedsOutputName: String
+        let logitsPerImageOutputName: String
+        let textEmbedsOutputName: String
         let imageDescriptor: NDArrayDescriptor
         let inputIDsDescriptor: NDArrayDescriptor
         let attentionMaskDescriptor: NDArrayDescriptor
+        let tokenizer: CLIPTokenizer
+        let textBatchSize: Int
+        let sequenceLength: Int
         let dummyTokens: [[Int32]]
     }
 
     private struct ModelBundleMetadata: Decodable {
         let assets: [String: String]
+    }
+
+    private struct CLIPZeroShotLabel: Sendable {
+        let display: String
+        let prompt: String
+    }
+
+    private struct CLIPPromptBatch {
+        let labels: [String]
+        let tokens: [[Int32]]
     }
 }
 

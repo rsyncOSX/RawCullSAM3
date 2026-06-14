@@ -45,6 +45,7 @@ struct BurstCandidateBadgeView: View {
     let analysis: BurstAnalysisResult
     let rating: Int
     var saliencyLabel: String?
+    var clipLabel: String?
     var isCompact = false
 
     var body: some View {
@@ -89,6 +90,9 @@ struct BurstCandidateBadgeView: View {
 
         if let saliencyLabel, !saliencyLabel.isEmpty {
             statusBadge(saliencyLabel, color: .cyan)
+        }
+        if let clipLabel, !clipLabel.isEmpty {
+            statusBadge("CLIP \(clipLabel)", color: .blue)
         }
     }
 
@@ -196,6 +200,7 @@ struct ImageItemView: View {
                                 analysis: analysis,
                                 rating: ratingValue,
                                 saliencyLabel: viewModel.sharpnessModel.saliencyInfo[file.id]?.subjectLabel,
+                                clipLabel: viewModel.similarityModel.clipLabels[file.id],
                             )
                         }
                     }
