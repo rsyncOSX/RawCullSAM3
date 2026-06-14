@@ -123,6 +123,13 @@ final class SimilarityScoringModel {
     /// When true, applyFilters sorts the file list by ascending distance.
     var sortBySimilarity: Bool = false
 
+    /// Backend selected for the latest indexing pass.
+    var embeddingBackend: SimilarityEmbeddingBackend = preferredEmbeddingBackend()
+
+    var usesCLIPEmbeddings: Bool {
+        embeddingBackend == .clip
+    }
+
     // MARK: Burst grouping
 
     /// Burst groups computed by sequential distance clustering.
@@ -156,6 +163,7 @@ final class SimilarityScoringModel {
         distances = [:]
         anchorFileID = nil
         sortBySimilarity = false
+        embeddingBackend = Self.preferredEmbeddingBackend()
         burstGroups = []
         burstGroupLookup = [:]
         burstBoundaryEvidence = []
@@ -189,6 +197,7 @@ final class SimilarityScoringModel {
         defer { isIndexing = false }
 
         let preferredBackend = Self.preferredEmbeddingBackend()
+        embeddingBackend = preferredBackend
         let clipProvider = preferredBackend == .clip ? CoreAICLIPProvider() : nil
 
         // Separate files that need embedding from those already done for the active backend.

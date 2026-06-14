@@ -32,6 +32,12 @@ struct SimilarityEmbeddingBackendTests {
     }
 
     @Test
+    func `preferred backend reports CLIP only when model URL is available`() {
+        #expect(SimilarityScoringModel.preferredEmbeddingBackend(clipModelURL: URL(fileURLWithPath: "/tmp/CLIP")) == .clip)
+        #expect(SimilarityScoringModel.preferredEmbeddingBackend(clipModelURL: nil) == .visionFeaturePrint)
+    }
+
+    @Test
     func `corrupt embedding data is ignored`() {
         let corrupt = Data("not json and not a vision archive".utf8)
 

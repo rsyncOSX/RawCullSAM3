@@ -15,6 +15,27 @@ nonisolated enum CLIPModelStatus: Equatable {
     var isInstalled: Bool {
         modelURL != nil
     }
+
+    var displayTitle: String {
+        switch self {
+        case .installed: "Installed"
+        case .missing: "Missing"
+        case .invalid: "Invalid"
+        }
+    }
+
+    var displayMessage: String {
+        switch self {
+        case let .installed(url):
+            "CLIP model resources are available at \(url.path)"
+
+        case .missing:
+            "CLIP model resources are not installed. Similarity indexing will use Vision feature prints until CLIP is available."
+
+        case let .invalid(url, reason):
+            "CLIP model resources were found at \(url.path), but \(reason)"
+        }
+    }
 }
 
 nonisolated struct CLIPModelResourceManager {

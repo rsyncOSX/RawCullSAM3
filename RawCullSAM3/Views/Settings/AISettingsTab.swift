@@ -1,13 +1,19 @@
 import SwiftUI
 
 struct AISettingsTab: View {
-    private let modelResourceManager: SAM3ModelResourceManager
+    private let sam3ModelResourceManager: SAM3ModelResourceManager
+    private let clipModelResourceManager: CLIPModelResourceManager
 
-    @State private var status: SAM3ModelStatus = .missing
+    @State private var sam3Status: SAM3ModelStatus = .missing
+    @State private var clipStatus: CLIPModelStatus = .missing
     @State private var showDownloadPlaceholder = false
 
-    init(modelResourceManager: SAM3ModelResourceManager = SAM3ModelResourceManager()) {
-        self.modelResourceManager = modelResourceManager
+    init(
+        modelResourceManager: SAM3ModelResourceManager = SAM3ModelResourceManager(),
+        clipModelResourceManager: CLIPModelResourceManager = CLIPModelResourceManager(),
+    ) {
+        self.sam3ModelResourceManager = modelResourceManager
+        self.clipModelResourceManager = clipModelResourceManager
     }
 
     var body: some View {
@@ -18,12 +24,37 @@ struct AISettingsTab: View {
                         .font(.system(size: 14, weight: .semibold))
                     Divider()
 
-                    statusRow
+                    statusRow(
+                        title: "SAM 3 model:",
+                        statusTitle: sam3Status.displayTitle,
+                        iconName: statusIconName(for: sam3Status),
+                        color: statusColor(for: sam3Status),
+                    )
 
-                    Text(status.displayMessage)
+                    Text(sam3Status.displayMessage)
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
                         .textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    Divider()
+
+                    statusRow(
+                        title: "CLIP model:",
+                        statusTitle: clipStatus.displayTitle,
+                        iconName: statusIconName(for: clipStatus),
+                        color: statusColor(for: clipStatus),
+                    )
+
+                    Text(clipStatus.displayMessage)
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    Text(clipStatus.isInstalled ? "Similarity indexing uses CLIP image embeddings by default. If CLIP inference fails for an image, RawCull falls back to Vision feature prints." : "Similarity indexing currently uses Vision feature prints.")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(clipStatus.isInstalled ? .green : .secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
@@ -36,7 +67,7 @@ struct AISettingsTab: View {
                             .font(.system(size: 12, weight: .medium))
                     },
                 )
-                .disabled(status.isInstalled)
+                .disabled(sam3Status.isInstalled)
                 .buttonStyle(RefinedGlassButtonStyle())
 
                 Button(
@@ -63,24 +94,29 @@ struct AISettingsTab: View {
         }
     }
 
-    private var statusRow: some View {
+    private func statusRow(
+        title: String,
+        statusTitle: String,
+        iconName: String,
+        color: Color,
+    ) -> some View {
         HStack(spacing: 8) {
-            Image(systemName: statusIconName)
+            Image(systemName: iconName)
                 .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(statusColor)
+                .foregroundStyle(color)
 
-            Text("SAM 3 model:")
+            Text(title)
                 .font(.system(size: 12, weight: .medium))
 
-            Text(status.displayTitle)
+            Text(statusTitle)
                 .font(.system(size: 12, weight: .semibold, design: .rounded))
-                .foregroundStyle(statusColor)
+                .foregroundStyle(color)
 
             Spacer()
         }
     }
 
-    private var statusIconName: String {
+    private func statusIconName(for status: SAM3ModelStatus) -> String {
         switch status {
         case .installed: "checkmark.circle.fill"
         case .missing: "exclamationmark.circle"
@@ -88,7 +124,23 @@ struct AISettingsTab: View {
         }
     }
 
-    private var statusColor: Color {
+    private func statusIconName(for status: CLIPModelStatus) -> String {
+        switch status {
+        case .installed: "checkmark.circle.fill"
+        case .missing: "exclamationmark.circle"
+        case .invalid: "xmark.circle.fill"
+        }
+    }
+
+    private func statusColor(for status: SAM3ModelStatus) -> Color {
+        switch status {
+        case .installed: .green
+        case .missing: .orange
+        case .invalid: .red
+        }
+    }
+
+    private func statusColor(for status: CLIPModelStatus) -> Color {
         switch status {
         case .installed: .green
         case .missing: .orange
@@ -97,6 +149,7 @@ struct AISettingsTab: View {
     }
 
     private func refreshStatus() {
-        status = modelResourceManager.modelStatus()
+        sam3Status = sam3ModelResourceManager.modelStatus()
+        clipStatus = clipModelResourceManager.modelStatus()
     }
 }
