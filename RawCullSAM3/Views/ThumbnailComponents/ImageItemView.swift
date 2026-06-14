@@ -45,7 +45,6 @@ struct BurstCandidateBadgeView: View {
     let analysis: BurstAnalysisResult
     let rating: Int
     var saliencyLabel: String?
-    var clipLabel: String?
     var isCompact = false
 
     var body: some View {
@@ -90,9 +89,6 @@ struct BurstCandidateBadgeView: View {
 
         if let saliencyLabel, !saliencyLabel.isEmpty {
             statusBadge(saliencyLabel, color: .cyan)
-        }
-        if let clipLabel, !clipLabel.isEmpty {
-            statusBadge("CLIP \(clipLabel)", color: .blue)
         }
     }
 
@@ -192,6 +188,11 @@ struct ImageItemView: View {
                             model: SubjectQualityBadgeModel(entry: viewModel.maskInventory[file.id]),
                         )
 
+                        if let clipLabel = viewModel.similarityModel.clipLabels[file.id],
+                           !clipLabel.isEmpty {
+                            clipBadge(clipLabel)
+                        }
+
                         if let groupID = viewModel.similarityModel.burstGroupLookup[file.id],
                            let analysis = viewModel.burstAnalysisResult(for: groupID),
                            let candidate = viewModel.burstCandidate(for: file) {
@@ -200,7 +201,6 @@ struct ImageItemView: View {
                                 analysis: analysis,
                                 rating: ratingValue,
                                 saliencyLabel: viewModel.sharpnessModel.saliencyInfo[file.id]?.subjectLabel,
-                                clipLabel: viewModel.similarityModel.clipLabels[file.id],
                             )
                         }
                     }
@@ -246,6 +246,17 @@ struct ImageItemView: View {
         .contentShape(Rectangle())
         .onTapGesture(count: 2) { onDoubleSelect() }
         .onTapGesture(count: 1) { onSelect() }
+    }
+
+    private func clipBadge(_ label: String) -> some View {
+        Text("CLIP \(label)")
+            .font(.system(size: 9, weight: .semibold, design: .monospaced))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 4)
+            .padding(.vertical, 2)
+            .background(Color.blue.opacity(0.85), in: RoundedRectangle(cornerRadius: 3))
+            .help("Whole-image CLIP label: \(label)")
+            .accessibilityLabel("CLIP label \(label)")
     }
 
     private var borderColor: Color {
