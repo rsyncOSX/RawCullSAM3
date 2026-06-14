@@ -17,7 +17,7 @@ debug: clean archive-debug open-debug
 
 # --- MAIN WORKFLOW FUNCTIONS --- #
 archive: clean
-	osascript -e 'display notification "Exporting application archive..." with title "Build the RawCull"'
+	osascript -e 'display notification "Exporting application archive..." with title "Build the RawCullSAM3"'
 	echo "Exporting application archive (RELEASE)..."
 	xcodebuild \
 		-scheme $(APP) \
@@ -32,7 +32,7 @@ archive: clean
 	echo "Project archived successfully (RELEASE)"
 
 archive-debug: clean
-	osascript -e 'display notification "Building debug version..." with title "Build the RawCull"'
+	osascript -e 'display notification "Building debug version..." with title "Build the RawCullSAM3"'
 	echo "Building application (DEBUG)..."
 	xcodebuild \
 		-scheme $(APP) \
@@ -47,7 +47,7 @@ archive-debug: clean
 	echo "Debug build completed successfully"
 
 sign-app:
-	osascript -e 'display notification "Signing application..." with title "Build the RawCull"'
+	osascript -e 'display notification "Signing application..." with title "Build the RawCullSAM3"'
 	echo "Signing application with Developer ID..."
 	codesign --deep --force \
 		--options runtime \
@@ -62,12 +62,12 @@ sign-app:
 	echo "Application signed successfully"
 
 notarize:
-	osascript -e 'display notification "Submitting app for notarization..." with title "Build the RawCull"'
+	osascript -e 'display notification "Submitting app for notarization..." with title "Build the RawCullSAM3"'
 	echo "Submitting app for notarization..."
 	@RESULT=$$(xcrun notarytool submit --keychain-profile "RsyncUI" --wait $(ZIP_PATH) 2>&1); \
 	echo "$$RESULT"; \
 	if echo "$$RESULT" | grep -q "status: Accepted"; then \
-		echo "✅ RawCull successfully notarized"; \
+		echo "✅ RawCullSAM3 successfully notarized"; \
 	else \
 		echo "❌ Notarization failed!"; \
 		SUBMISSION_ID=$$(echo "$$RESULT" | grep "id:" | head -1 | awk '{print $$2}'); \
@@ -77,25 +77,25 @@ notarize:
 	fi
 
 staple:
-	osascript -e 'display notification "Stapling the RawCull..." with title "Build the RawCull"'
+	osascript -e 'display notification "Stapling the RawCullSAM3..." with title "Build the RawCullSAM3"'
 	echo "Stapling notarization ticket to application..."
 	xcrun stapler staple $(APP_PATH)
 	echo "Verifying stapled application..."
 	spctl -a -t exec -vvv $(APP_PATH)
-	osascript -e 'display notification "RawCull successfully stapled" with title "Build the RawCull"'
-	echo "✅ RawCull successfully stapled"
+	osascript -e 'display notification "RawCullSAM3 successfully stapled" with title "Build the RawCullSAM3"'
+	echo "✅ RawCullSAM3 successfully stapled"
 
 prepare-dmg:
-	osascript -e 'display notification "Creating DMG..." with title "Build the RawCull"'
+	osascript -e 'display notification "Creating DMG..." with title "Build the RawCullSAM3"'
 	echo "Creating DMG installer..."
 	../create-dmg/create-dmg \
-		--volname "RawCull ver $(VERSION)" \
+		--volname "RawCullSAM3 ver $(VERSION)" \
 		--background "./images/background.png" \
 		--window-pos 200 120 \
 		--window-size 500 320 \
 		--icon-size 80 \
-		--icon "RawCull.app" 125 175 \
-		--hide-extension "RawCull.app" \
+		--icon "RawCullSAM3.app" 125 175 \
+		--hide-extension "RawCullSAM3.app" \
 		--app-drop-link 375 175 \
 		--no-internet-enable \
 		--codesign 93M47F4H9T \
@@ -126,12 +126,12 @@ check-cert:
 	@security find-identity -v -p codesigning
 
 open:
-	osascript -e 'display notification "RawCull signed and ready for distribution" with title "Build the RawCull"'
+	osascript -e 'display notification "RawCullSAM3 signed and ready for distribution" with title "Build the RawCullSAM3"'
 	echo "Opening working folder..."
 	open $(PWD)
 
 open-debug:
-	osascript -e 'display notification "RawCull debug build ready" with title "Build the RawCull"'
+	osascript -e 'display notification "RawCullSAM3 debug build ready" with title "Build the RawCullSAM3"'
 	echo "Opening working folder..."
 	open $(PWD)
 	echo "Debug build complete - app is at: $(APP_PATH)"
