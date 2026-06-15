@@ -536,6 +536,23 @@ struct RawCullViewModelCullingTests {
 
         #expect(states.isEmpty)
     }
+
+    @Test
+    func `stale sharpness signature is not current for burst analysis reuse`() {
+        let model = SharpnessScoringModel()
+        let files = [makeCullingTestFile("A.ARW"), makeCullingTestFile("B.ARW")]
+        model.applyPreloadedScores(
+            files,
+            preloadedScores: [files[0].id: 0.8, files[1].id: 0.6],
+            preloadedSaliency: [:],
+        )
+
+        #expect(model.hasCurrentScores(for: files))
+
+        model.scoringQuality = .balanced
+
+        #expect(!model.hasCurrentScores(for: files))
+    }
 }
 
 @MainActor

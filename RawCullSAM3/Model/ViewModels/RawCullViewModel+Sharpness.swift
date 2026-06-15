@@ -47,6 +47,9 @@ extension RawCullViewModel {
         guard let catalogIndex = cullingModel.savedFiles.firstIndex(where: { $0.catalog == catalog }) else { return }
         guard let filerecords = cullingModel.savedFiles[catalogIndex].filerecords else { return }
 
+        var preloadedScores: [UUID: Float] = [:]
+        var preloadedSaliency: [UUID: SaliencyInfo] = [:]
+
         for file in files {
             // Find the matching file record for this file
             guard let fileRecord = filerecords.first(where: { $0.fileName == file.name }) else { continue }
@@ -56,12 +59,20 @@ extension RawCullViewModel {
                 && fileRecord.sharpnessModificationDate.map { abs($0.timeIntervalSince(file.dateModified)) < 0.001 } == true
             guard fileRecord.sharpnessScoringSignature == sharpnessModel.scoringSignature, metadataMatches else { continue }
 
-            if let score = fileRecord.sharpnessScore { sharpnessModel.scores[file.id] = score }
+            if let score = fileRecord.sharpnessScore { preloadedScores[file.id] = score }
 
             if let subjectLabel = fileRecord.saliencySubject {
                 // Create saliency info with the subject label
-                sharpnessModel.saliencyInfo[file.id] = SaliencyInfo(subjectLabel: subjectLabel)
+                preloadedSaliency[file.id] = SaliencyInfo(subjectLabel: subjectLabel)
             }
+        }
+
+        if !preloadedScores.isEmpty {
+            sharpnessModel.applyPreloadedScores(
+                files,
+                preloadedScores: preloadedScores,
+                preloadedSaliency: preloadedSaliency,
+            )
         }
     }
 }

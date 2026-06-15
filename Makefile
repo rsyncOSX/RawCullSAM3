@@ -69,9 +69,6 @@ SMOKE_ONLY_TESTING = \
 	'-only-testing:RawCullSAM3Tests/FocusEvidencePatchOverlayTests/`eye head heuristic rewards compact ring detail over linear edge`()' \
 	'-only-testing:RawCullSAM3Tests/FocusEvidencePatchOverlayTests/`AF anchored heuristic penalizes lower patch beyond head window`()' \
 	'-only-testing:RawCullSAM3Tests/FocusEvidencePatchOverlayTests/`saliency heuristic does not invent below AF penalty`()' \
-	'-only-testing:RawCullSAM3Tests/BurstRankingEngineTests/`burst relative sharpness can outweigh subject metadata when detail clearly leads`()' \
-	'-only-testing:RawCullSAM3Tests/BurstRankingEngineTests/`burst relative sharpness is omitted for tiny sharpness spread`()' \
-	'-only-testing:RawCullSAM3Tests/BurstRankingEngineTests/`best relative frame still needs absolute sharpness for high confidence`()' \
 	'-only-testing:RawCullSAM3Tests/ApertureHintTests/`nil aperture maps to mid`()' \
 	'-only-testing:RawCullSAM3Tests/ApertureHintTests/`wide boundary is inclusive at 5 point 6`()' \
 	'-only-testing:RawCullSAM3Tests/ApertureHintTests/`landscape boundary is inclusive at f 8`()' \
@@ -188,6 +185,9 @@ clean:
 
 test-smoke:
 	xcodebuild test $(XCODE_TEST_FLAGS) -testPlan Smoke $(SMOKE_ONLY_TESTING)
+	@rawcullcore_package="$$(find "$(DERIVED_DATA_ROOT)" -path "*/SourcePackages/checkouts/RawCullCore/Package.swift" -not -path "*/Index.noindex/*" -type f -print -quit)"; \
+	test -n "$$rawcullcore_package" || (echo "Missing resolved RawCullCore checkout under $(DERIVED_DATA_ROOT)" && exit 1); \
+	cd "$$(dirname "$$rawcullcore_package")" && swift test --filter Burst
 
 test-full:
 	xcodebuild test $(XCODE_TEST_FLAGS) -testPlan RawCull -enableThreadSanitizer YES

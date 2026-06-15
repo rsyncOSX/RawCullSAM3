@@ -45,7 +45,7 @@ extension RawCullViewModel {
         }
 
         guard !Task.isCancelled else { return }
-        if sharpnessModel.scores.isEmpty {
+        if !sharpnessModel.hasCurrentScores(for: sorted) {
             burstAnalysisProgress = BurstAnalysisProgress(
                 step: .scoringSharpness,
                 total: sorted.count,
@@ -54,7 +54,11 @@ extension RawCullViewModel {
         }
 
         guard !Task.isCancelled else { return }
-        if similarityModel.embeddings.count < sorted.count {
+        await SettingsViewModel.shared.ensureLoaded()
+        let preferredEmbeddingBackend = SimilarityScoringModel.preferredEmbeddingBackend(
+            useCLIPForSimilarity: SettingsViewModel.shared.useCLIPForSimilarity,
+        )
+        if !similarityModel.hasCurrentEmbeddings(for: sorted, backend: preferredEmbeddingBackend) {
             burstAnalysisProgress = BurstAnalysisProgress(
                 step: .indexingSimilarity,
                 total: sorted.count,

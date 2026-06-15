@@ -233,6 +233,17 @@ final class SimilarityScoringModel {
         indexingEstimatedSeconds = 0
     }
 
+    func hasCurrentEmbeddings(
+        for files: [FileItem],
+        backend: SimilarityEmbeddingBackend,
+    ) -> Bool {
+        Self.hasCurrentEmbeddings(
+            files: files,
+            embeddings: embeddings,
+            backend: backend,
+        )
+    }
+
     /// Compute similarity embeddings for all files using thumbnail-resolution
     /// images (same thumbnail size used by sharpness scoring). CLIP is preferred
     /// when installed; Vision feature prints are used as the fallback backend.
@@ -463,7 +474,7 @@ final class SimilarityScoringModel {
         let threshold = burstSensitivity
         let snapshot = embeddings // [UUID: Data], Sendable
         let config = BurstGroupingConfig(visualDistanceThreshold: threshold)
-        let signature = cacheSignature(fileIDs: files.map(\.id), embeddingsCount: snapshot.count)
+        let signature = Self.cacheSignature(files: files, embeddings: snapshot)
         let cachedAdjacentDistances = _adjacentDistanceCacheSignature == signature ? _adjacentDistanceCache : [:]
 
         let work = Task.detached(priority: .userInitiated) { () -> BurstGroupingOutput? in
@@ -640,6 +651,18 @@ final class SimilarityScoringModel {
         return (clip, vision)
     }
 
+    nonisolated static func hasCurrentEmbeddings(
+        files: [FileItem],
+        embeddings: [UUID: Data],
+        backend: SimilarityEmbeddingBackend,
+    ) -> Bool {
+        guard !files.isEmpty else { return false }
+        return files.allSatisfy { file in
+            guard let data = embeddings[file.id] else { return false }
+            return embeddingBackend(for: data) == backend
+        }
+    }
+
     nonisolated static func distance(from lhs: DecodedSimilarityEmbedding, to rhs: DecodedSimilarityEmbedding) -> Float? {
         switch (lhs, rhs) {
         case let (.clip(left), .clip(right)):
@@ -691,11 +714,18 @@ final class SimilarityScoringModel {
         return .vision(observation)
     }
 
-    private nonisolated func cacheSignature(fileIDs: [UUID], embeddingsCount: Int) -> Int {
+    nonisolated static func cacheSignature(files: [FileItem], embeddings: [UUID: Data]) -> Int {
         var hasher = Hasher()
-        hasher.combine(embeddingsCount)
-        for id in fileIDs {
-            hasher.combine(id)
+        hasher.combine(files.count)
+        for file in files {
+            hasher.combine(file.id)
+            guard let data = embeddings[file.id] else {
+                hasher.combine(0)
+                continue
+            }
+            hasher.combine(data.count)
+            hasher.combine(data)
+            hasher.combine(embeddingBackend(for: data).rawValue)
         }
         return hasher.finalize()
     }

@@ -83,14 +83,59 @@ struct SimilarityEmbeddingBackendTests {
         #expect(model.anchorFileID == nil)
         #expect(!model.sortBySimilarity)
     }
+
+    @Test
+    func `embedding freshness requires every current file id for selected backend`() throws {
+        let current = [makeSimilarityTestFile("one.ARW"), makeSimilarityTestFile("two.ARW")]
+        let stale = makeSimilarityTestFile("stale.ARW")
+        let embeddings = try [
+            current[0].id: #require(SimilarityEmbeddingEnvelope.encodeCLIP([1, 0])),
+            stale.id: #require(SimilarityEmbeddingEnvelope.encodeCLIP([0, 1]))
+        ]
+
+        #expect(!SimilarityScoringModel.hasCurrentEmbeddings(
+            files: current,
+            embeddings: embeddings,
+            backend: .clip,
+        ))
+    }
+
+    @Test
+    func `burst grouping cache invalidates when embedding payload changes`() async throws {
+        let files = [
+            makeSimilarityTestFile("one.ARW", seconds: 0),
+            makeSimilarityTestFile("two.ARW", seconds: 1),
+            makeSimilarityTestFile("three.ARW", seconds: 2)
+        ]
+        let model = SimilarityScoringModel()
+        model.embeddings = try [
+            files[0].id: #require(SimilarityEmbeddingEnvelope.encodeCLIP([1.00, 0.00])),
+            files[1].id: #require(SimilarityEmbeddingEnvelope.encodeCLIP([0.99, 0.01])),
+            files[2].id: #require(SimilarityEmbeddingEnvelope.encodeCLIP([0.98, 0.02]))
+        ]
+
+        await model.groupBursts(files: files)
+        #expect(model.burstGroups.count == 1)
+
+        model.embeddings = try [
+            files[0].id: #require(SimilarityEmbeddingEnvelope.encodeCLIP([1.00, 0.00])),
+            files[1].id: #require(SimilarityEmbeddingEnvelope.encodeCLIP([0.99, 0.01])),
+            files[2].id: #require(SimilarityEmbeddingEnvelope.encodeCLIP([0.00, 1.00]))
+        ]
+
+        await model.groupBursts(files: files)
+
+        #expect(model.burstGroups.count == 2)
+        #expect(model.burstGroups.map(\.fileIDs) == [[files[0].id, files[1].id], [files[2].id]])
+    }
 }
 
-private func makeSimilarityTestFile(_ name: String) -> FileItem {
+private func makeSimilarityTestFile(_ name: String, seconds: TimeInterval = 0) -> FileItem {
     FileItem(
         url: URL(fileURLWithPath: "/tmp/\(name)"),
         name: name,
         size: 1,
-        dateModified: Date(timeIntervalSince1970: 0),
+        dateModified: Date(timeIntervalSince1970: seconds),
         exifData: nil,
         afFocusNormalized: nil,
     )

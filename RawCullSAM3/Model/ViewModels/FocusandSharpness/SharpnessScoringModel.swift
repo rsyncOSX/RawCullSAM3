@@ -24,7 +24,10 @@ final class SharpnessScoringModel {
     /// persisted scores. `didSet` refreshes `maxScore` so read sites in view
     /// bodies are O(1) instead of re-sorting the full score set per cell.
     var scores: [UUID: Float] = [:] {
-        didSet { recomputeMaxScore() }
+        didSet {
+            recomputeMaxScore()
+            scoresSignature = nil
+        }
     }
 
     var saliencyInfo: [UUID: SaliencyInfo] = [:]
@@ -45,6 +48,7 @@ final class SharpnessScoringModel {
     /// (not computed) so each ImageItemView read is O(1); recomputed only on
     /// `scores` mutation via `didSet`.
     private(set) var maxScore: Float = 1.0
+    private(set) var scoresSignature: SharpnessScoringSignature?
 
     /// Normalization denominator used by UI badges:
     ///   n <  2 → the lone score itself (or 1.0 as a safe default)
@@ -117,6 +121,7 @@ final class SharpnessScoringModel {
         _scoringTask = nil
         isScoring = false
         scores = [:]
+        scoresSignature = nil
         saliencyInfo = [:]
         breakdowns = [:]
         scoringProgress = 0
@@ -167,6 +172,7 @@ final class SharpnessScoringModel {
 
         let engine = FocusMaskEngine()
         let config = effectiveFocusConfig
+        let signature = scoringSignature
         let thumbSize = effectiveThumbnailMaxPixelSize
         let scoringSource = scoringSource
         let scoreComputerOverride = scoreComputerOverride
@@ -272,6 +278,7 @@ final class SharpnessScoringModel {
 
                 guard !Task.isCancelled else { return }
                 self.scores = localScores
+                self.scoresSignature = signature
                 self.saliencyInfo = localSaliency
                 self.breakdowns = localBreakdowns
             }
@@ -292,6 +299,7 @@ final class SharpnessScoringModel {
         _ files: [FileItem],
         preloadedScores: [UUID: Float],
         preloadedSaliency: [UUID: SaliencyInfo],
+        scoringSignature: SharpnessScoringSignature? = nil,
     ) {
         guard !files.isEmpty else {
             sortBySharpness = false
@@ -308,6 +316,7 @@ final class SharpnessScoringModel {
 
         let validIDs = Set(files.map(\.id))
         scores = preloadedScores.filter { validIDs.contains($0.key) }
+        scoresSignature = scoringSignature ?? self.scoringSignature
         saliencyInfo = preloadedSaliency.filter { validIDs.contains($0.key) }
         breakdowns = [:]
 
@@ -315,5 +324,13 @@ final class SharpnessScoringModel {
         scoringProgress = 0
         scoringTotal = 0
         scoringEstimatedSeconds = 0
+    }
+
+    func hasCurrentScores(for files: [FileItem]) -> Bool {
+        guard !files.isEmpty,
+              scoresSignature == scoringSignature
+        else { return false }
+
+        return files.allSatisfy { scores[$0.id]?.isFinite == true }
     }
 }
