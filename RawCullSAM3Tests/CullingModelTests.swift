@@ -423,6 +423,79 @@ struct RawCullViewModelCullingTests {
     }
 
     @Test
+    func `burst analysis targets use selected thumbnails before rating filter`() {
+        let viewModel = RawCullViewModel()
+        let selected = makeCullingTestFile("selected.ARW")
+        let rated = makeCullingTestFile("rated.ARW")
+        let other = makeCullingTestFile("other.ARW")
+        viewModel.files = [rated, selected, other]
+        viewModel.filteredFiles = [other, selected, rated]
+        viewModel.ratingCache = [
+            rated.name: 2,
+            selected.name: 4
+        ]
+        viewModel.ratingFilter = .stars(2)
+        viewModel.selectedFileIDs = [selected.id]
+
+        #expect(viewModel.burstAnalysisTargetFiles.map(\.id) == [selected.id])
+    }
+
+    @Test
+    func `burst analysis targets use active star filter in visible order`() {
+        let viewModel = RawCullViewModel()
+        let first = makeCullingTestFile("first.ARW")
+        let second = makeCullingTestFile("second.ARW")
+        let other = makeCullingTestFile("other.ARW")
+        viewModel.files = [first, second, other]
+        viewModel.filteredFiles = [second, first, other]
+        viewModel.ratingCache = [
+            first.name: 2,
+            second.name: 2,
+            other.name: 3
+        ]
+        viewModel.ratingFilter = .stars(2)
+
+        #expect(viewModel.burstAnalysisTargetFiles.map(\.id) == [second.id, first.id])
+    }
+
+    @Test
+    func `burst analysis targets fall back to full catalog for non star filters`() {
+        let viewModel = RawCullViewModel()
+        let a = makeCullingTestFile("A.ARW")
+        let b = makeCullingTestFile("B.ARW")
+        let c = makeCullingTestFile("C.ARW")
+        viewModel.files = [c, a, b]
+        viewModel.filteredFiles = [b]
+        viewModel.ratingCache = [
+            a.name: -1,
+            b.name: 0,
+            c.name: 2
+        ]
+
+        viewModel.ratingFilter = .all
+        #expect(viewModel.burstAnalysisTargetFiles.map(\.id) == [a.id, b.id, c.id])
+
+        viewModel.ratingFilter = .keepers
+        #expect(viewModel.burstAnalysisTargetFiles.map(\.id) == [a.id, b.id, c.id])
+
+        viewModel.ratingFilter = .rejected
+        #expect(viewModel.burstAnalysisTargetFiles.map(\.id) == [a.id, b.id, c.id])
+    }
+
+    @Test
+    func `burst analysis ordered files append hidden selections after visible files`() {
+        let viewModel = RawCullViewModel()
+        let first = makeCullingTestFile("first.ARW")
+        let second = makeCullingTestFile("second.ARW")
+        let hidden = makeCullingTestFile("hidden.ARW")
+        viewModel.files = [first, second, hidden]
+        viewModel.filteredFiles = [second, first]
+        viewModel.selectedFileIDs = [hidden.id, first.id]
+
+        #expect(viewModel.burstAnalysisTargetFiles.map(\.id) == [first.id, hidden.id])
+    }
+
+    @Test
     func `bulk updateRating updates culling model and cache`() {
         let viewModel = RawCullViewModel()
         let catalog = ARWSourceCatalog(name: "Catalog", url: URL(fileURLWithPath: "/tmp/catalog-\(UUID().uuidString)"))

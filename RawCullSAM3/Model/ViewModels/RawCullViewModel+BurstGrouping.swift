@@ -23,15 +23,15 @@ extension RawCullViewModel {
     /// score sharpness, index similarity, group bursts, rank candidates, and
     /// persist the analysis artifacts.
     func analyzeBursts() async {
+        let sorted = burstAnalysisTargetFiles
         guard let catalog = selectedSource?.url,
-              !files.isEmpty,
+              !sorted.isEmpty,
               !isCreatingSAM3Masks
         else { return }
 
         burstAnalysisTask?.cancel()
         burstAnalysisTask = Task {}
 
-        let sorted = burstOrderedFiles
         burstAnalysisProgress = BurstAnalysisProgress(step: .loadingCache)
         if let snapshot = await burstAnalysisCache.load(
             catalog: catalog,
@@ -39,7 +39,7 @@ extension RawCullViewModel {
             thumbnailMaxPixelSize: sharpnessModel.effectiveThumbnailMaxPixelSize,
             sharpnessSignature: currentBurstSharpnessSignature,
         ) {
-            applyCachedBurstAnalysis(remapCachedSnapshot(snapshot, to: sorted))
+            applyCachedBurstAnalysis(remapCachedSnapshot(snapshot, to: sorted), files: sorted)
             burstAnalysisProgress = BurstAnalysisProgress()
             return
         }
@@ -50,7 +50,7 @@ extension RawCullViewModel {
                 step: .scoringSharpness,
                 total: sorted.count,
             )
-            await calibrateAndScoreCurrentCatalog()
+            await calibrateAndScoreBurstFiles(sorted)
         }
 
         guard !Task.isCancelled else { return }
@@ -84,7 +84,7 @@ extension RawCullViewModel {
     /// the current catalog, and run a fresh analysis pass.
     func reindexBurstAnalysis() async {
         guard let catalog = selectedSource?.url,
-              !files.isEmpty,
+              !burstAnalysisTargetFiles.isEmpty,
               !isCreatingSAM3Masks
         else { return }
 
@@ -101,7 +101,8 @@ extension RawCullViewModel {
         guard !similarityModel.embeddings.isEmpty,
               !isCreatingSAM3Masks
         else { return }
-        let sorted = burstOrderedFiles
+        let sorted = burstAnalysisTargetFiles
+        guard !sorted.isEmpty else { return }
         guard !Task.isCancelled else { return }
         await similarityModel.groupBursts(files: sorted)
         recomputeBurstRankings(files: sorted)
@@ -142,7 +143,7 @@ extension RawCullViewModel {
         )
         cullingModel.upsertBurstWinnerOverride(override, in: selectedSource.url)
         updateRating(for: winner, rating: 3)
-        applyManualWinnerOverrides(files: files)
+        applyManualWinnerOverrides(files: burstAnalysisTargetFiles)
     }
 
     /// Rate the recommended frame at ★★★, second best at ★★, and reject others.
@@ -289,6 +290,36 @@ extension RawCullViewModel {
         return burstAnalysisResults[groupID]?.candidates.first { $0.fileID == file.id }
     }
 
+    var burstAnalysisTargetFiles: [FileItem] {
+        let orderedFiles = burstAnalysisOrderedFiles()
+        if !selectedFileIDs.isEmpty {
+            return orderedFiles.filter { selectedFileIDs.contains($0.id) }
+        }
+
+        if case let .stars(rating) = ratingFilter,
+           (2 ... 5).contains(rating) {
+            return orderedFiles.filter { getRating(for: $0) == rating }
+        }
+
+        return burstOrderedFiles
+    }
+
+    func burstAnalysisOrderedFiles() -> [FileItem] {
+        let visibleFiles = filteredFiles.isEmpty ? burstOrderedFiles : filteredFiles
+        var seenIDs = Set<FileItem.ID>()
+        var orderedFiles: [FileItem] = []
+
+        for file in visibleFiles where seenIDs.insert(file.id).inserted {
+            orderedFiles.append(file)
+        }
+
+        for file in burstOrderedFiles where seenIDs.insert(file.id).inserted {
+            orderedFiles.append(file)
+        }
+
+        return orderedFiles
+    }
+
     private var burstOrderedFiles: [FileItem] {
         files.sorted {
             $0.name.localizedStandardCompare($1.name) == .orderedAscending
@@ -380,26 +411,26 @@ extension RawCullViewModel {
 
     private func persistBurstReviewStates() {
         guard let catalog = selectedSource?.url else { return }
-        let currentFiles = burstOrderedFiles
+        let currentFiles = burstAnalysisTargetFiles
         Task {
             await saveBurstAnalysisCache(catalog: catalog, files: currentFiles)
         }
     }
 
-    private func applyCachedBurstAnalysis(_ snapshot: BurstAnalysisCacheSnapshot) {
+    private func applyCachedBurstAnalysis(_ snapshot: BurstAnalysisCacheSnapshot, files currentFiles: [FileItem]) {
         similarityModel.applyCachedBurstAnalysis(snapshot)
         sharpnessModel.applyPreloadedScores(
-            files,
+            currentFiles,
             preloadedScores: snapshot.sharpnessScores,
             preloadedSaliency: snapshot.saliencyInfo,
         )
-        burstReviewStates = cachedReviewStates(from: snapshot)
+        burstReviewStates = cachedReviewStates(from: snapshot, files: currentFiles)
         burstAnalysisResults = Dictionary(uniqueKeysWithValues: snapshot.results.map { result in
             var updated = result
             updated.reviewState = burstReviewStates[result.groupID] ?? .none
             return (updated.groupID, updated)
         })
-        applyManualWinnerOverrides(files: files)
+        applyManualWinnerOverrides(files: currentFiles)
     }
 
     func clearLoadedBurstAnalysisForReindex() {
@@ -442,12 +473,13 @@ extension RawCullViewModel {
         await burstAnalysisCache.save(snapshot, catalog: catalog)
     }
 
-    func cachedReviewStates(from snapshot: BurstAnalysisCacheSnapshot) -> [Int: BurstReviewState] {
+    func cachedReviewStates(from snapshot: BurstAnalysisCacheSnapshot, files currentFiles: [FileItem]? = nil) -> [Int: BurstReviewState] {
         guard let catalog = selectedSource?.url else { return [:] }
         let savedStatesBySignature = Dictionary(
             uniqueKeysWithValues: snapshot.reviewStateSnapshots.map { ($0.signature, $0.state) },
         )
-        let filesByID = Dictionary(uniqueKeysWithValues: files.map { ($0.id, $0) })
+        let filesForLookup = currentFiles ?? files
+        let filesByID = Dictionary(uniqueKeysWithValues: filesForLookup.map { ($0.id, $0) })
 
         var states: [Int: BurstReviewState] = [:]
         for group in similarityModel.burstGroups {

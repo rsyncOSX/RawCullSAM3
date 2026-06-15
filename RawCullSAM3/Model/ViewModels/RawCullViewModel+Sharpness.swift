@@ -10,25 +10,35 @@ extension RawCullViewModel {
     /// Auto-calibrates focus config from the current catalog, then scores and re-sorts.
     /// After a successful (non-cancelled) run, scores and saliency are persisted to SavedFiles.
     func calibrateAndScoreCurrentCatalog() async {
+        await calibrateAndScoreFiles(files)
+    }
+
+    func calibrateAndScoreBurstFiles(_ files: [FileItem]) async {
+        await calibrateAndScoreFiles(files)
+    }
+
+    private func calibrateAndScoreFiles(_ files: [FileItem]) async {
+        guard !files.isEmpty else { return }
         await sharpnessModel.calibrateFromBurst(files)
         await sharpnessModel.scoreFiles(files)
         // scores is cleared at the start of scoreFiles and only written on clean completion —
         // an empty dict means the run was cancelled, so skip the write.
         if !sharpnessModel.scores.isEmpty {
-            persistScoringResultsInMemory()
+            persistScoringResultsInMemory(files: files)
         }
         await handleSortOrderChange()
     }
 
     /// Merges current sharpness scores and saliency labels into cullingModel.savedFiles
     /// and lets the culling store coalesce persistence with other culling changes.
-    func persistScoringResultsInMemory() {
+    func persistScoringResultsInMemory(files filesToPersist: [FileItem]? = nil) {
         guard let catalog = selectedSource?.url else { return }
         let scores = sharpnessModel.scores
         let saliency = sharpnessModel.saliencyInfo
         let signature = sharpnessModel.scoringSignature
+        let filesForResults = filesToPersist ?? files
 
-        let results = files.compactMap { file -> CullingScoringResult? in
+        let results = filesForResults.compactMap { file -> CullingScoringResult? in
             guard let score = scores[file.id] else { return nil }
             return CullingScoringResult(
                 fileName: file.name,
