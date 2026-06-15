@@ -10,11 +10,59 @@ extension RawCullViewModel {
     /// Auto-calibrates focus config from the current catalog, then scores and re-sorts.
     /// After a successful (non-cancelled) run, scores and saliency are persisted to SavedFiles.
     func calibrateAndScoreCurrentCatalog() async {
-        await calibrateAndScoreFiles(files)
+        await calibrateAndScoreFiles(sharpnessScoringTargetFiles)
     }
 
     func calibrateAndScoreBurstFiles(_ files: [FileItem]) async {
         await calibrateAndScoreFiles(files)
+    }
+
+    var sharpnessScoringTargetFiles: [FileItem] {
+        let orderedFiles = sharpnessScoringOrderedFiles()
+        if !selectedFileIDs.isEmpty {
+            return orderedFiles.filter { selectedFileIDs.contains($0.id) }
+        }
+
+        if case let .stars(rating) = ratingFilter,
+           (2 ... 5).contains(rating) {
+            return orderedFiles.filter { getRating(for: $0) == rating }
+        }
+
+        return sharpnessScoringCatalogFiles
+    }
+
+    var sharpnessScoringTargetDescription: String {
+        let count = sharpnessScoringTargetFiles.count
+        if !selectedFileIDs.isEmpty {
+            return "\(count) selected thumbnail\(count == 1 ? "" : "s")"
+        }
+        if case let .stars(rating) = ratingFilter,
+           (2 ... 5).contains(rating) {
+            return "\(count) \(rating)-star file\(count == 1 ? "" : "s")"
+        }
+        return "\(count) catalog file\(count == 1 ? "" : "s")"
+    }
+
+    func sharpnessScoringOrderedFiles() -> [FileItem] {
+        let visibleFiles = filteredFiles.isEmpty ? sharpnessScoringCatalogFiles : filteredFiles
+        var seenIDs = Set<FileItem.ID>()
+        var orderedFiles: [FileItem] = []
+
+        for file in visibleFiles where seenIDs.insert(file.id).inserted {
+            orderedFiles.append(file)
+        }
+
+        for file in sharpnessScoringCatalogFiles where seenIDs.insert(file.id).inserted {
+            orderedFiles.append(file)
+        }
+
+        return orderedFiles
+    }
+
+    private var sharpnessScoringCatalogFiles: [FileItem] {
+        files.sorted {
+            $0.name.localizedStandardCompare($1.name) == .orderedAscending
+        }
     }
 
     private func calibrateAndScoreFiles(_ files: [FileItem]) async {

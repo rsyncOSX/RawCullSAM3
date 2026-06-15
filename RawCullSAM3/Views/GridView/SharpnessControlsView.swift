@@ -144,8 +144,8 @@ struct SharpnessControlsView: View {
             }
         }
         .font(.caption)
-        .disabled(viewModel.sharpnessModel.isScoring || viewModel.files.isEmpty)
-        .help("Calibrate the visual edge threshold from this catalog, then score sharpness")
+        .disabled(viewModel.sharpnessModel.isScoring || viewModel.sharpnessScoringTargetFiles.isEmpty)
+        .help("Calibrate the visual edge threshold, then score sharpness for \(viewModel.sharpnessScoringTargetDescription)")
 
         // Cancel button — only visible while scoring
         if viewModel.sharpnessModel.isScoring {

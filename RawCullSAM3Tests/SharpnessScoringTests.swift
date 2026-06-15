@@ -126,6 +126,122 @@ struct SharpnessScoringTests {
         #expect(model.effectiveThumbnailMaxPixelSize == 1536)
     }
 
+    @Test
+    @MainActor
+    func `sharpness targets use selected thumbnails before rating filter`() {
+        let viewModel = RawCullViewModel()
+        let selected = makeSharpnessTestFile(name: "selected.ARW")
+        let rated = makeSharpnessTestFile(name: "rated.ARW")
+        let other = makeSharpnessTestFile(name: "other.ARW")
+        viewModel.files = [rated, selected, other]
+        viewModel.filteredFiles = [other, selected, rated]
+        viewModel.ratingCache = [
+            rated.name: 2,
+            selected.name: 4
+        ]
+        viewModel.ratingFilter = .stars(2)
+        viewModel.selectedFileIDs = [selected.id]
+
+        #expect(viewModel.sharpnessScoringTargetFiles.map(\.id) == [selected.id])
+    }
+
+    @Test
+    @MainActor
+    func `sharpness targets use active star filter in visible order`() {
+        let viewModel = RawCullViewModel()
+        let first = makeSharpnessTestFile(name: "first.ARW")
+        let second = makeSharpnessTestFile(name: "second.ARW")
+        let other = makeSharpnessTestFile(name: "other.ARW")
+        viewModel.files = [first, second, other]
+        viewModel.filteredFiles = [second, first, other]
+        viewModel.ratingCache = [
+            first.name: 2,
+            second.name: 2,
+            other.name: 3
+        ]
+        viewModel.ratingFilter = .stars(2)
+
+        #expect(viewModel.sharpnessScoringTargetFiles.map(\.id) == [second.id, first.id])
+    }
+
+    @Test
+    @MainActor
+    func `sharpness targets fall back to full catalog for non star filters`() {
+        let viewModel = RawCullViewModel()
+        let a = makeSharpnessTestFile(name: "A.ARW")
+        let b = makeSharpnessTestFile(name: "B.ARW")
+        let c = makeSharpnessTestFile(name: "C.ARW")
+        viewModel.files = [c, a, b]
+        viewModel.filteredFiles = [b]
+        viewModel.ratingCache = [
+            a.name: -1,
+            b.name: 0,
+            c.name: 2
+        ]
+
+        viewModel.ratingFilter = .all
+        #expect(viewModel.sharpnessScoringTargetFiles.map(\.id) == [a.id, b.id, c.id])
+
+        viewModel.ratingFilter = .keepers
+        #expect(viewModel.sharpnessScoringTargetFiles.map(\.id) == [a.id, b.id, c.id])
+
+        viewModel.ratingFilter = .rejected
+        #expect(viewModel.sharpnessScoringTargetFiles.map(\.id) == [a.id, b.id, c.id])
+    }
+
+    @Test
+    @MainActor
+    func `sharpness ordered files append hidden selections after visible files`() {
+        let viewModel = RawCullViewModel()
+        let first = makeSharpnessTestFile(name: "first.ARW")
+        let second = makeSharpnessTestFile(name: "second.ARW")
+        let hidden = makeSharpnessTestFile(name: "hidden.ARW")
+        viewModel.files = [first, second, hidden]
+        viewModel.filteredFiles = [second, first]
+        viewModel.selectedFileIDs = [hidden.id, first.id]
+
+        #expect(viewModel.sharpnessScoringTargetFiles.map(\.id) == [first.id, hidden.id])
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    @MainActor
+    func `current catalog scoring only scores and persists target files`() async {
+        let recorder = SharpnessScoringRecorder()
+        let selected = makeSharpnessTestFile(name: "selected.ARW")
+        let rated = makeSharpnessTestFile(name: "rated.ARW")
+        let other = makeSharpnessTestFile(name: "other.ARW")
+        let catalog = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("rawcull-sharpness-catalog-\(UUID().uuidString)", isDirectory: true)
+        let viewModel = RawCullViewModel()
+        viewModel.selectedSource = ARWSourceCatalog(name: "Sharpness Test", url: catalog)
+        viewModel.cullingModel = CullingModel(saveDelayNanoseconds: 0, saveHandler: { _ in })
+        viewModel.sharpnessModel = SharpnessScoringModel { url, _, _, _, _ in
+            await recorder.record(url.lastPathComponent)
+            return (
+                score: 0.5,
+                saliency: SaliencyInfo(subjectLabel: "subject"),
+                breakdown: nil,
+            )
+        }
+        viewModel.files = [rated, selected, other]
+        viewModel.filteredFiles = [other, selected, rated]
+        viewModel.updateRating(for: rated, rating: 2)
+        viewModel.updateRating(for: selected, rating: 4)
+        viewModel.ratingFilter = .stars(2)
+        viewModel.selectedFileIDs = [selected.id]
+
+        await viewModel.calibrateAndScoreCurrentCatalog()
+
+        #expect(await recorder.names == [selected.name])
+        #expect(viewModel.sharpnessModel.scores.keys.sorted { $0.uuidString < $1.uuidString } == [selected.id])
+
+        let scoredRecords = (viewModel.cullingModel.savedFiles.first?.filerecords ?? [])
+            .filter { $0.sharpnessScore != nil }
+        #expect(scoredRecords.map(\.fileName) == [selected.name])
+        #expect(scoredRecords.first?.sharpnessScore == 0.5)
+        #expect(scoredRecords.first?.saliencySubject == "subject")
+    }
+
     @Test(.tags(.threadSafety), .timeLimit(.minutes(1)))
     @MainActor
     func `concurrent scoreFiles call awaits in flight scoring`() async throws {
@@ -183,10 +299,11 @@ struct SharpnessScoringTests {
 
 // MARK: - Numeric helper unit tests
 
-private func makeSharpnessTestFile() -> FileItem {
+private func makeSharpnessTestFile(name: String? = nil) -> FileItem {
+    let fileName = name ?? "rawcull-sharpness-\(UUID().uuidString).arw"
     let url = URL(fileURLWithPath: NSTemporaryDirectory())
-        .appendingPathComponent("rawcull-sharpness-\(UUID().uuidString)")
-        .appendingPathExtension("arw")
+        .appendingPathComponent("rawcull-sharpness-\(UUID().uuidString)", isDirectory: true)
+        .appendingPathComponent(fileName)
 
     return FileItem(
         url: url,
@@ -196,6 +313,18 @@ private func makeSharpnessTestFile() -> FileItem {
         exifData: nil,
         afFocusNormalized: nil,
     )
+}
+
+private actor SharpnessScoringRecorder {
+    private var recordedNames: [String] = []
+
+    var names: [String] {
+        recordedNames
+    }
+
+    func record(_ name: String) {
+        recordedNames.append(name)
+    }
 }
 
 private actor SharpnessScoringGate {
