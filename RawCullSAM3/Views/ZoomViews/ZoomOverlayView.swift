@@ -533,7 +533,7 @@ struct ZoomOverlayView: View {
 
     private func applyRating(_ rating: Int) -> KeyPress.Result {
         guard let selectedFile = viewModel.selectedFile else { return .ignored }
-        viewModel.updateRating(for: selectedFile, rating: rating)
+        viewModel.updateRatingAndAdvance(for: selectedFile, rating: rating, in: orderedZoomFiles)
         return .handled
     }
 
