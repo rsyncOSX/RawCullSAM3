@@ -13,6 +13,9 @@ extension RawCullViewModel {
             return
         }
 
+        selectedFileID = nil
+        selectedFileIDs = []
+
         cancelCatalogLoad()
         currentselectedSource = source
 
@@ -60,8 +63,6 @@ extension RawCullViewModel {
 
         creatingthumbnails = false
         scanning = false
-        maskInventory = [:]
-        Task { await maskCatalogIndex.reset() }
     }
 
     func handleSourceChange(url: URL) async {
@@ -107,6 +108,7 @@ extension RawCullViewModel {
 
         files = scannedFiles
         filteredFiles = applyFilters(to: sortedFiles)
+        preselectFirstVisibleFileByName()
 
         guard !files.isEmpty else {
             scanning = false
@@ -129,28 +131,6 @@ extension RawCullViewModel {
             preloadedScores: sharpnessModel.scores,
             preloadedSaliency: sharpnessModel.saliencyInfo,
         )
-
-        // Build mask inventory concurrently with thumbnail preload.
-        let snapshotFiles = files
-        let diskCache = SharedMemoryCache.shared.sam3MaskDiskCache
-        Task(priority: .utility) { [weak self] in
-            guard let self else { return }
-            await maskCatalogIndex.build(
-                for: snapshotFiles,
-                diskCache: diskCache,
-                onUpdate: { [weak self] in
-                    guard let self else { return }
-                    Task { @MainActor [weak self] in
-                        guard let self else { return }
-                        self.maskInventory = await self.maskCatalogIndex.inventory
-                    }
-                },
-            )
-            let final = await maskCatalogIndex.inventory
-            await MainActor.run { [weak self] in
-                self?.maskInventory = final
-            }
-        }
 
         if !processedURLs.contains(url) {
             let settingsmanager = await SettingsViewModel.shared.asyncgetsettings()
@@ -224,6 +204,14 @@ extension RawCullViewModel {
 
     func isActiveCatalogLoad(_ url: URL) -> Bool {
         activeCatalogLoadURL == url && selectedSource?.url == url
+    }
+
+    func preselectFirstVisibleFileByName() {
+        selectedFileID = filteredFiles
+            .min { lhs, rhs in
+                lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
+            }?
+            .id
     }
 
     /// Applies the active rating filter and sharpness sort to a pre-sorted file list.
