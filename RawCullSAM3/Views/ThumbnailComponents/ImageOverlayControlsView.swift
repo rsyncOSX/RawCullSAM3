@@ -236,7 +236,7 @@ struct SubjectMaskScanButton: View {
 
     private var labelText: String {
         guard let progress else {
-            return isRunning ? "SAM" : "Scan SAM"
+            return isRunning ? "SAM3" : "Scan SAM3"
         }
         if isRunning || progress.completed < progress.total {
             return "\(progress.completed)/\(progress.total)"

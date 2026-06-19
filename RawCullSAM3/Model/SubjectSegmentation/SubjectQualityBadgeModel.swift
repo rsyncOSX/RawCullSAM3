@@ -23,7 +23,7 @@ nonisolated struct SubjectQualityBadgeModel {
     init(entry: SAM3MaskInventoryEntry?) {
         guard let entry, entry.hasMask else {
             level = .poor
-            label = "SAM --"
+            label = "SAM3 --"
             helpText = "No cached SAM3 mask"
             isClipped = false
             return
@@ -31,9 +31,9 @@ nonisolated struct SubjectQualityBadgeModel {
 
         isClipped = Self.isClipped(entry.boundingBox)
         label = switch Self.classify(entry: entry, isClipped: isClipped) {
-        case .good: "SAM"
-        case .warning: "SAM ?"
-        case .poor: "SAM --"
+        case .good: "SAM3"
+        case .warning: "SAM3 ?"
+        case .poor: "SAM3 --"
         }
 
         level = Self.classify(entry: entry, isClipped: isClipped)

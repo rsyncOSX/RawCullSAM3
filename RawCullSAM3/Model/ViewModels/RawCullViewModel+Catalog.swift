@@ -15,6 +15,7 @@ extension RawCullViewModel {
 
         selectedFileID = nil
         selectedFileIDs = []
+        maskInventory = [:]
 
         cancelCatalogLoad()
         currentselectedSource = source
@@ -60,6 +61,7 @@ extension RawCullViewModel {
 
         sharpnessModel.reset()
         similarityModel.reset()
+        maskInventory = [:]
 
         creatingthumbnails = false
         scanning = false
@@ -109,6 +111,7 @@ extension RawCullViewModel {
         files = scannedFiles
         filteredFiles = applyFilters(to: sortedFiles)
         preselectFirstVisibleFileByName()
+        await rebuildMaskInventory(for: scannedFiles, catalogURL: url)
 
         guard !files.isEmpty else {
             scanning = false
@@ -212,6 +215,24 @@ extension RawCullViewModel {
                 lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
             }?
             .id
+    }
+
+    func rebuildMaskInventory(
+        for files: [FileItem],
+        catalogURL: URL,
+        diskCache: SAM3MaskDiskCache = SharedMemoryCache.shared.sam3MaskDiskCache,
+    ) async {
+        maskInventory = [:]
+        await maskCatalogIndex.build(
+            for: files,
+            diskCache: diskCache,
+            onUpdate: { [weak self] in
+                guard let self,
+                      self.selectedSource?.url == catalogURL
+                else { return }
+                self.maskInventory = await self.maskCatalogIndex.inventory
+            },
+        )
     }
 
     /// Applies the active rating filter and sharpness sort to a pre-sorted file list.

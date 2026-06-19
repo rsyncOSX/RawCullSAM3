@@ -79,11 +79,11 @@ changing scoring logic. It answers: "Did SAM 3 find a usable subject here?"
 
 **How.** Use the mask inventory. Color badge:
 
-- Green `SAM`: cached mask exists, coverage is reasonable, bounding box is
+- Green `SAM3`: cached mask exists, coverage is reasonable, bounding box is
   non-empty, the cache is fresh, and the subject is not clipped at the frame edge.
-- Amber `SAM ?`: cached mask exists but has a caution such as low/broad coverage,
+- Amber `SAM3 ?`: cached mask exists but has a caution such as low/broad coverage,
   stale cache metadata, or near-edge clipping.
-- Red `SAM --`: no cached mask, empty bounding box, near-empty coverage, or
+- Red `SAM3 --`: no cached mask, empty bounding box, near-empty coverage, or
   extremely broad coverage.
 
 The SAM 3 model confidence score remains available in the badge help text as
@@ -165,7 +165,7 @@ holds. Filtering itself is CPU-only and instantaneous.
 **What.** Display a small coloured badge on each grid thumbnail once a SAM 3
 mask has been computed and cached for that image (similar to the sharpness score
 badge). The badge should show mask usability, not the raw confidence percentage:
-green `SAM`, amber `SAM ?`, or red `SAM --`.
+green `SAM3`, amber `SAM3 ?`, or red `SAM3 --`.
 
 **How.** Let `GridThumbnailViewModel` read published mask inventory state rather
 than calling the segmentation actor. Badges appear incrementally as the catalog

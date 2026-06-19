@@ -34,7 +34,7 @@ actor SAM3MaskCatalogIndex {
     func build(
         for files: [FileItem],
         diskCache: SAM3MaskDiskCache,
-        onUpdate: (@MainActor @Sendable () -> Void)? = nil,
+        onUpdate: (@MainActor @Sendable () async -> Void)? = nil,
     ) {
         buildTask?.cancel()
         inventory = [:]
@@ -50,7 +50,7 @@ actor SAM3MaskCatalogIndex {
     private func runBuild(
         files: [FileItem],
         diskCache: SAM3MaskDiskCache,
-        onUpdate: (@MainActor @Sendable () -> Void)?,
+        onUpdate: (@MainActor @Sendable () async -> Void)?,
     ) async {
         let batchSize = 20
         var batch: [(FileItem.ID, SAM3MaskInventoryEntry)] = []

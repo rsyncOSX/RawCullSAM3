@@ -20,6 +20,7 @@ private nonisolated func makeSAM3CacheTestCGImage(
     width: Int = 32,
     height: Int = 24,
     color: CGColor = CGColor(red: 1, green: 1, blue: 1, alpha: 1),
+    fillRect: CGRect? = nil,
 ) throws -> CGImage {
     let colorSpace = CGColorSpaceCreateDeviceRGB()
     let context = try #require(CGContext(
@@ -32,7 +33,7 @@ private nonisolated func makeSAM3CacheTestCGImage(
         bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue,
     ))
     context.setFillColor(color)
-    context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+    context.fill(fillRect ?? CGRect(x: 0, y: 0, width: width, height: height))
     return try #require(context.makeImage())
 }
 
@@ -776,6 +777,70 @@ struct SAM3MaskCreationViewModelTests {
             inputMaxSide: SAM3SubjectMaskCacheReader.inputMaxSide,
         )
         #expect(cached != nil)
+    }
+
+    @Test
+    func `SAM3 mask inventory publishes cached and missing entries`() async throws {
+        let root = try makeSAM3CacheTestRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let cachedSource = try makeSAM3CacheSource(in: root, name: "cached.ARW")
+        let missingSource = try makeSAM3CacheSource(in: root, name: "missing.ARW")
+        let cachedFile = makeSAM3TestFileItem(url: cachedSource)
+        let missingFile = makeSAM3TestFileItem(url: missingSource)
+        let diskCache = SAM3MaskDiskCache(cacheDirectory: root.appendingPathComponent("Masks", isDirectory: true))
+        let mask = try makeSAM3CacheTestCGImage(
+            width: 40,
+            height: 40,
+            fillRect: CGRect(x: 12, y: 12, width: 16, height: 16),
+        )
+        let timing = SubjectSegmentationTiming(
+            preprocessMilliseconds: nil,
+            inferenceMilliseconds: nil,
+            postprocessMilliseconds: nil,
+            totalMilliseconds: 12,
+        )
+        let outputSize = CGSize(width: 40, height: 40)
+        let diagnostics = SubjectSegmentationDiagnostics(
+            modelVersion: SAM3SubjectMaskCacheReader.modelVersion,
+            prompt: SAM3SubjectMaskCacheReader.prompt,
+            confidence: 0.82,
+            timing: timing,
+            inputSize: outputSize,
+            outputSize: outputSize,
+            resourceName: "test",
+            assetName: "test",
+        )
+        let result = SubjectSegmentationResult(
+            fileID: cachedFile.id,
+            requestID: UUID(),
+            prompt: SAM3SubjectMaskCacheReader.prompt,
+            mask: mask,
+            confidence: 0.82,
+            modelVersion: SAM3SubjectMaskCacheReader.modelVersion,
+            inputSize: outputSize,
+            outputSize: outputSize,
+            timing: timing,
+            diagnostics: diagnostics,
+        )
+        await diskCache.save(result, for: cachedSource, inputMaxSide: SAM3SubjectMaskCacheReader.inputMaxSide)
+
+        let viewModel = RawCullViewModel()
+        viewModel.selectedSource = ARWSourceCatalog(name: "SAM3 Test", url: root)
+
+        await viewModel.rebuildMaskInventory(
+            for: [cachedFile, missingFile],
+            catalogURL: root,
+            diskCache: diskCache,
+        )
+
+        try await waitUntil(timeoutSeconds: 2) {
+            viewModel.maskInventory.count == 2
+        }
+
+        let cachedBadge = SubjectQualityBadgeModel(entry: viewModel.maskInventory[cachedFile.id])
+        let missingBadge = SubjectQualityBadgeModel(entry: viewModel.maskInventory[missingFile.id])
+        #expect(cachedBadge.label == "SAM3")
+        #expect(missingBadge.label == "SAM3 --")
     }
 
     @Test

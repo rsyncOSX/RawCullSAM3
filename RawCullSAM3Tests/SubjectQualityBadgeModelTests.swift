@@ -26,7 +26,7 @@ struct SubjectQualityBadgeModelTests {
         let model = SubjectQualityBadgeModel(entry: nil)
 
         #expect(model.level == .poor)
-        #expect(model.label == "SAM --")
+        #expect(model.label == "SAM3 --")
         #expect(model.helpText == "No cached SAM3 mask")
         #expect(model.isClipped == false)
     }
@@ -36,7 +36,7 @@ struct SubjectQualityBadgeModelTests {
         let model = SubjectQualityBadgeModel(entry: makeSubjectEntry(confidence: 0.09))
 
         #expect(model.level == .good)
-        #expect(model.label == "SAM")
+        #expect(model.label == "SAM3")
         #expect(model.helpText.contains("coverage 20%"))
         #expect(model.helpText.contains("not clipped"))
         #expect(model.helpText.contains("fresh"))
@@ -48,7 +48,7 @@ struct SubjectQualityBadgeModelTests {
         let model = SubjectQualityBadgeModel(entry: makeSubjectEntry(confidence: 0.69))
 
         #expect(model.level == .good)
-        #expect(model.label == "SAM")
+        #expect(model.label == "SAM3")
         #expect(model.helpText.contains("model confidence 69%"))
     }
 
@@ -64,7 +64,7 @@ struct SubjectQualityBadgeModelTests {
         let model = SubjectQualityBadgeModel(entry: makeSubjectEntry(coverage: 0.01))
 
         #expect(model.level == .warning)
-        #expect(model.label == "SAM ?")
+        #expect(model.label == "SAM3 ?")
     }
 
     @Test
