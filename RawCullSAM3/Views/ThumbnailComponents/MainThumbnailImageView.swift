@@ -387,7 +387,7 @@ struct MainThumbnailImageView: View {
         case .toggleDevelopedRAW:
             sourceSelection.toggleExtractionSource(.developedRAW)
             return .handled
-            
+
         case .inspectActualPixels:
             viewModel.openZoomOverlay(
                 initialSource: .embeddedJPG,

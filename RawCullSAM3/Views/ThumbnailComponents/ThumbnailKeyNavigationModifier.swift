@@ -76,7 +76,7 @@ struct ThumbnailKeyNavigationModifier: ViewModifier {
                             showFocusPointsOnOpen: true,
                         )
                         return nil
-                    
+
                     case _ where isPrev:
                         guard let current = viewModel.selectedFile,
                               let idx = files.firstIndex(where: { $0.id == current.id }),

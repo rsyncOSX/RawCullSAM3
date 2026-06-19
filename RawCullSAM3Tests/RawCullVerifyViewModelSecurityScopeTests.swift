@@ -105,7 +105,7 @@ struct RawCullViewModelSecurityScopeTests {
         #expect(stopped == [url])
         #expect(!viewModel.hasActiveSecurityScopedAccess(for: url))
     }
-    
+
     @Test
     func `empty catalog scan clears active load state and security scope`() async throws {
         let viewModel = RawCullViewModel()

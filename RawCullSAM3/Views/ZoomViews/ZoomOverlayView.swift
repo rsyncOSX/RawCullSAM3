@@ -292,7 +292,7 @@ struct ZoomOverlayView: View {
                             },
                         )
                     }
-                    
+
                     Text(currentScale <= 1.0 ? "Double-click to zoom" : "Double-click to fit")
                         .font(.caption).foregroundStyle(.white.opacity(0.5))
 
@@ -436,7 +436,7 @@ struct ZoomOverlayView: View {
             showFocusPoints = focusTarget != nil
         }
     }
-    
+
     private func prepareSourceAndReload(resetForNewImage: Bool) {
         guard let file = viewModel.selectedFile else { return }
         sourcePreparationTask?.cancel()

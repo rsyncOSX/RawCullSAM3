@@ -48,7 +48,7 @@ struct SidebarARWCatalogFileView: View {
                         Label("Add Catalog", systemImage: "plus")
                     }
                 }
-            }else {
+            } else {
                 ZStack {
                     VStack(alignment: .leading) {
                         HStack {
