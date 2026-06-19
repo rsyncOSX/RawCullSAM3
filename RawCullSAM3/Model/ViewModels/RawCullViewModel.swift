@@ -35,6 +35,23 @@ enum ZoomOverlayNavigationAxis: Equatable {
     case horizontal
 }
 
+enum ZoomOverlayInitialZoomMode: Equatable {
+    case fit
+    case actualPixels
+}
+
+struct ZoomOverlayLaunchContext: Equatable {
+    var initialSource: ImagePreviewSource
+    var initialZoomMode: ZoomOverlayInitialZoomMode
+    var showFocusPointsOnOpen: Bool
+
+    static let `default` = ZoomOverlayLaunchContext(
+        initialSource: .thumbnail,
+        initialZoomMode: .fit,
+        showFocusPointsOnOpen: false,
+    )
+}
+
 enum ActiveSheet: String, Identifiable {
     case stats
     case scoringParams
@@ -102,6 +119,7 @@ final class RawCullViewModel {
     var zoomOverlayVisible: Bool = false
     var zoomOverlayNavigationAxis: ZoomOverlayNavigationAxis = .horizontal
     var zoomOverlayNavigationContext: ZoomOverlayNavigationContext?
+    var zoomOverlayLaunchContext: ZoomOverlayLaunchContext = .default
     var zoomOverlayCGImage: CGImage?
     var zoomOverlayNSImage: NSImage?
 
@@ -232,9 +250,19 @@ final class RawCullViewModel {
         lastOffset = .zero
     }
 
-    func openZoomOverlay(navigationIDs: [FileItem.ID]? = nil) {
+    func openZoomOverlay(
+        navigationIDs: [FileItem.ID]? = nil,
+        initialSource: ImagePreviewSource = .thumbnail,
+        initialZoomMode: ZoomOverlayInitialZoomMode = .fit,
+        showFocusPointsOnOpen: Bool = false,
+    ) {
         zoomOverlayNavigationAxis = mainViewMode == .loupe ? .vertical : .horizontal
         zoomOverlayNavigationContext = navigationIDs.map(ZoomOverlayNavigationContext.init(orderedFileIDs:))
+        zoomOverlayLaunchContext = ZoomOverlayLaunchContext(
+            initialSource: initialSource,
+            initialZoomMode: initialZoomMode,
+            showFocusPointsOnOpen: showFocusPointsOnOpen,
+        )
         zoomOverlayVisible = true
     }
 
@@ -243,6 +271,7 @@ final class RawCullViewModel {
         zoomExtractionTask = nil
         zoomOverlayVisible = false
         zoomOverlayNavigationContext = nil
+        zoomOverlayLaunchContext = .default
         zoomOverlayCGImage = nil
         zoomOverlayNSImage = nil
     }
