@@ -213,11 +213,11 @@ struct ZoomOverlayView: View {
                         RatingActionBarView(
                             currentRating: ratingDisplay(for: selectedFile),
                             onSelect: { rating in
-                                viewModel.updateRating(for: selectedFile, rating: rating)
+                                viewModel.updateRatingAndAdvance(for: selectedFile, rating: rating, in: orderedZoomFiles)
                             },
                         )
                     }
-
+                    
                     Text(currentScale <= 1.0 ? "Double-click to zoom" : "Double-click to fit")
                         .font(.caption).foregroundStyle(.white.opacity(0.5))
 
