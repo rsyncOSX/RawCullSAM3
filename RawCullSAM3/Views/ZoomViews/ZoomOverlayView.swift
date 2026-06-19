@@ -381,6 +381,7 @@ struct ZoomOverlayView: View {
         .onAppear {
             isImageFocused = true
             installKeyMonitor()
+            applyLaunchContext()
             prepareSourceAndReload(resetForNewImage: false)
         }
         .onDisappear {
@@ -402,7 +403,6 @@ struct ZoomOverlayView: View {
             reload()
             loadCachedSubjectMask()
         }
-        .onChange(of: sourceSelection.selected) { _, _ in reload() }
         .onChange(of: viewModel.selectedFile) { _, _ in
             guard viewModel.zoomOverlayVisible else { return }
             sourceSelection.resetForNewImage()
@@ -458,7 +458,10 @@ struct ZoomOverlayView: View {
             await MainActor.run {
                 guard viewModel.selectedFile?.id == file.id else { return }
                 sourcePreparationTask = nil
-                let shouldSelectCachedJPG = hasCachedJPG && sourceSelection.selected != .embeddedJPG
+                let launchSource = viewModel.zoomOverlayLaunchContext.initialSource
+                let shouldSelectCachedJPG = launchSource == .thumbnail
+                    && hasCachedJPG
+                    && sourceSelection.selected != .embeddedJPG
                 if shouldSelectCachedJPG {
                     suppressSourceSelectionReload = true
                     sourceSelection.selectEmbeddedJPGIfCached(true)
@@ -779,6 +782,12 @@ struct ZoomOverlayView: View {
         .scaleEffect(currentScale)
         .offset(offset)
         .gesture(zoomPanGesture)
+        .onAppear {
+            applyPendingInitialZoomIfNeeded(imageSize: CGSize(width: image.width, height: image.height), viewportSize: size)
+        }
+        .onChange(of: viewModel.zoomOverlayCGImage?.hashValue) { _, _ in
+            applyPendingInitialZoomIfNeeded(imageSize: CGSize(width: image.width, height: image.height), viewportSize: size)
+        }
         .onTapGesture(count: 2) {
             withAnimation(.spring()) { currentScale > 1.0 ? resetToFit() : zoomToTarget() }
         }
