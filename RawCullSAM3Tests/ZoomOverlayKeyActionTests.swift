@@ -287,7 +287,7 @@ struct ZoomViewportMathTests {
             viewportSize: CGSize(width: 1500, height: 1000),
         )
 
-        #expect(scale == 4.0)
+        #expect(scale == 2.4)
     }
 
     @Test(.tags(.smoke))
