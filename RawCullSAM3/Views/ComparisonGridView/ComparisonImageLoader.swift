@@ -30,10 +30,14 @@ enum ComparisonImageLoader {
             let orientedPreview = await Task.detached(priority: .userInitiated) {
                 OrientationNormalizedImageLoader.loadSonyEmbeddedPreview(from: file.url)
             }.value
-            let extracted = if let orientedPreview {
+            let extracted: CGImage? = if let orientedPreview {
                 orientedPreview
             } else {
-                await format.extractFullJPEG(from: file.url, fullSize: false)
+                if let image = await format.extractFullJPEG(from: file.url, fullSize: false) {
+                    OrientationNormalizedImageLoader.applyingSourceOrientation(to: image, from: file.url) ?? image
+                } else {
+                    nil
+                }
             }
 
             guard let extracted else { return (nil, nil) }
@@ -60,8 +64,11 @@ enum ComparisonImageLoader {
             let url = file.url
             let size = CGFloat(thumbnailSizePreview)
             let amount = settings.thumbnailSharpenAmount
-            let sharpened = await Task.detached(priority: .userInitiated) {
-                ThumbnailSharpener.sharpenedPreview(from: url, maxDimension: size, amount: amount)
+            let sharpened = await Task.detached(priority: .userInitiated) { () -> CGImage? in
+                guard let image = ThumbnailSharpener.sharpenedPreview(from: url, maxDimension: size, amount: amount) else {
+                    return nil
+                }
+                return OrientationNormalizedImageLoader.applyingSourceOrientation(to: image, from: url)
             }.value
             return (sharpened ?? cgThumb, nil)
         }

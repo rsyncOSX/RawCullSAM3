@@ -47,8 +47,11 @@ enum ZoomPreviewHandler {
                     let url = file.url
                     let size = CGFloat(thumbnailSizePreview)
                     let amount = settings.thumbnailSharpenAmount
-                    let sharpened = await Task.detached(priority: .userInitiated) {
-                        ThumbnailSharpener.sharpenedPreview(from: url, maxDimension: size, amount: amount)
+                    let sharpened = await Task.detached(priority: .userInitiated) { () -> CGImage? in
+                        guard let image = ThumbnailSharpener.sharpenedPreview(from: url, maxDimension: size, amount: amount) else {
+                            return nil
+                        }
+                        return OrientationNormalizedImageLoader.applyingSourceOrientation(to: image, from: url)
                     }.value
                     displayImage = sharpened ?? cgThumb
                 } else {
@@ -127,10 +130,14 @@ enum ZoomPreviewHandler {
         let orientedPreview = await Task.detached(priority: .userInitiated) {
             OrientationNormalizedImageLoader.loadSonyEmbeddedPreview(from: rawURL)
         }.value
-        let extracted = if let orientedPreview {
+        let extracted: CGImage? = if let orientedPreview {
             orientedPreview
         } else {
-            await format.extractFullJPEG(from: rawURL, fullSize: false)
+            if let image = await format.extractFullJPEG(from: rawURL, fullSize: false) {
+                OrientationNormalizedImageLoader.applyingSourceOrientation(to: image, from: rawURL) ?? image
+            } else {
+                nil
+            }
         }
         guard !Task.isCancelled else { return nil }
 
