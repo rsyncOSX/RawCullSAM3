@@ -4,68 +4,6 @@ import OSAKit
 import OSLog
 import RawCullCore
 
-enum AlertType {
-    case extractJPGs
-    case createJPGDiskCache
-    case createSAM3Masks
-    case clearRatedFiles
-}
-
-enum RatingFilter: Hashable {
-    case all
-    case rejected // rating == -1
-    case keepers // rating == 0
-    case stars(Int) // rating == n, n in 2...5
-}
-
-enum MainViewMode: String, CaseIterable, Identifiable {
-    case loupe
-    case grid
-    case similarityGrid
-    case ratedGrid
-    case comparisonGrid
-
-    var id: String {
-        rawValue
-    }
-}
-
-enum ZoomOverlayNavigationAxis: Equatable {
-    case vertical
-    case horizontal
-}
-
-enum ZoomOverlayInitialZoomMode: Equatable {
-    case fit
-    case actualPixels
-}
-
-struct ZoomOverlayLaunchContext: Equatable {
-    var initialSource: ImagePreviewSource
-    var initialZoomMode: ZoomOverlayInitialZoomMode
-    var showFocusPointsOnOpen: Bool
-
-    static let `default` = ZoomOverlayLaunchContext(
-        initialSource: .thumbnail,
-        initialZoomMode: .fit,
-        showFocusPointsOnOpen: false,
-    )
-}
-
-enum ActiveSheet: String, Identifiable {
-    case stats
-    case scoringParams
-
-    var id: String {
-        rawValue
-    }
-}
-
-struct RawDiagnosticsPresentation: Identifiable {
-    let id = UUID()
-    let log: String
-}
-
 @Observable @MainActor
 final class RawCullViewModel {
     /// Remember previous selected source to avoid a new rescan of
