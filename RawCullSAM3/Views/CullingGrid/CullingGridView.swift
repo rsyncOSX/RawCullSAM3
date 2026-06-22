@@ -76,6 +76,15 @@ private struct BurstGroupHeaderView: View {
                     .accessibilityLabel("Run Sharpness Scoring to enable Keep Best")
             }
 
+            if let deepResult {
+                BurstStatusBadgeView(title: deepResult.confidence.title, color: deepBadgeColor(deepResult.confidence))
+                Text(deepResult.recommendationLabel)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                    .help(deepResult.explanation)
+            }
+
             Spacer(minLength: 6)
 
             HStack(spacing: 3) {
@@ -94,15 +103,18 @@ private struct BurstGroupHeaderView: View {
         if canApplyOneClickCulling {
             keepBestButton(title: presentation?.primaryActionTitle ?? "Keep best", prominent: true)
             compareButton()
+            deepReviewButton()
             keepTopTwoButton(prominent: false)
         } else if presentation?.primaryAction == .compare {
             compareButton(title: presentation?.primaryActionTitle ?? "Compare", prominent: true)
+            deepReviewButton()
             if analysis?.confidence == .medium {
                 keepTopTwoButton(prominent: false)
                 keepBestButton(title: "Keep best", prominent: false)
             }
         } else {
             compareButton(prominent: true)
+            deepReviewButton()
         }
 
         reviewStateButtons
@@ -231,6 +243,29 @@ private struct BurstGroupHeaderView: View {
         }
     }
 
+    private func deepReviewButton() -> some View {
+        Button {
+            if let groupID {
+                viewModel.presentDeepAIReview(groupID: groupID)
+            }
+            Task {
+                await viewModel.runDeepAIReview(for: files)
+            }
+        } label: {
+            if viewModel.deepAIReviewModel.isRunning && viewModel.deepAIReviewModel.activeGroupID == groupID {
+                ProgressView()
+                    .controlSize(.mini)
+            } else {
+                Text(deepResult == nil ? "Deep Review" : "Deep")
+            }
+        }
+        .buttonStyle(.bordered)
+        .font(.caption)
+        .controlSize(.mini)
+        .disabled(viewModel.isDeepAIReviewUnavailable)
+        .help(viewModel.isDeepAIReviewUnavailable ? "Deep Review is unavailable while analysis is running" : "Run detailed SAM3 subject sharpness review")
+    }
+
     private func burstActionHelp(_ fallback: String) -> String {
         viewModel.isCreatingSAM3Masks ? "Unavailable while SAM3 masks are being created" : fallback
     }
@@ -247,6 +282,14 @@ private struct BurstGroupHeaderView: View {
         analysis?.canApplyOneClickCulling(hasSharpnessScores: hasSharpnessScores) ?? false
     }
 
+    private var groupID: Int? {
+        files.lazy.compactMap { viewModel.similarityModel.burstGroupLookup[$0.id] }.first
+    }
+
+    private var deepResult: DeepAIReviewResult? {
+        groupID.flatMap { viewModel.deepAIReviewResult(for: $0) }
+    }
+
     private var badgeColor: Color {
         if analysis?.reviewState == .manualWinnerOverride {
             return .orange
@@ -255,6 +298,14 @@ private struct BurstGroupHeaderView: View {
         case .high: return .green
         case .medium: return .orange
         case .low, .none: return .gray
+        }
+    }
+
+    private func deepBadgeColor(_ confidence: DeepAIReviewConfidence) -> Color {
+        switch confidence {
+        case .high: .green
+        case .medium: .orange
+        case .low: .gray
         }
     }
 
@@ -490,6 +541,15 @@ struct CullingGridView<Header: View>: View {
         .animation(.easeInOut(duration: 0.15), value: viewModel.showsBurstGroups)
         .animation(.easeInOut(duration: 0.15), value: ratingFilter)
         .toolbar { sharedSelectionStatusToolbar }
+        .sheet(isPresented: deepReviewSheetBinding) {
+            DeepAIReviewSheetView(
+                model: viewModel.deepAIReviewModel,
+                files: filesForPresentedDeepReview,
+                onRun: { groupFiles in
+                    Task { await viewModel.runDeepAIReview(for: groupFiles) }
+                },
+            )
+        }
         .onKeyPress(characters: CharacterSet(charactersIn: "\rBb2RrUu")) { press in
             handleBurstKeyPress(press.characters)
         }
@@ -628,6 +688,21 @@ struct CullingGridView<Header: View>: View {
         viewModel.filteredBurstGroupsForReviewQueue
     }
 
+    private var deepReviewSheetBinding: Binding<Bool> {
+        Binding {
+            viewModel.deepAIReviewModel.presentedGroupID != nil
+        } set: { isPresented in
+            if !isPresented {
+                viewModel.deepAIReviewModel.presentedGroupID = nil
+            }
+        }
+    }
+
+    private var filesForPresentedDeepReview: [FileItem] {
+        guard let groupID = viewModel.deepAIReviewModel.presentedGroupID else { return [] }
+        return visibleBurstGroups.first { $0.id == groupID }?.files ?? []
+    }
+
     /// Builds the thumbnail cell for a file inside a burst group.
     /// Extracted into a helper so the `@ViewBuilder` closure in the `ForEach` remains
     /// simple enough for Swift's type-checker.
@@ -730,6 +805,150 @@ struct CullingGridView<Header: View>: View {
         case 5: .purple
         default: nil
         }
+    }
+}
+
+private struct DeepAIReviewSheetView: View {
+    @Bindable var model: DeepAIReviewModel
+    let files: [FileItem]
+    let onRun: ([FileItem]) -> Void
+
+    private var result: DeepAIReviewResult? {
+        model.presentedGroupID.flatMap { model.result(for: $0) }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 12) {
+                Picker("Preset", selection: $model.preset) {
+                    ForEach(DeepAIReviewPreset.allCases) { preset in
+                        Text(preset.title).tag(preset)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .frame(maxWidth: 420)
+
+                Button {
+                    onRun(files)
+                } label: {
+                    if model.isRunning {
+                        ProgressView()
+                            .controlSize(.small)
+                    } else {
+                        Text("Run")
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(files.isEmpty || model.isRunning)
+            }
+
+            if model.isRunning, !model.statusText.isEmpty {
+                Text(model.statusText)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            if let result {
+                DeepAIReviewSummaryView(result: result)
+                DeepAIReviewCandidateTable(result: result)
+            } else {
+                ContentUnavailableView(
+                    "No Deep Review Yet",
+                    systemImage: "sparkle.magnifyingglass",
+                    description: Text("Run a detailed review for this burst group."),
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        .padding(16)
+        .frame(minWidth: 760, minHeight: 460)
+    }
+}
+
+private struct DeepAIReviewSummaryView: View {
+    let result: DeepAIReviewResult
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 8) {
+                Text(result.recommendationLabel)
+                    .font(.headline)
+                Text(result.confidence.title)
+                    .font(.caption.weight(.semibold))
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(confidenceColor.opacity(0.16), in: Capsule())
+                    .foregroundStyle(confidenceColor)
+                Text(result.preset.title)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            if !result.explanation.isEmpty {
+                Text(result.explanation)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+        }
+    }
+
+    private var confidenceColor: Color {
+        switch result.confidence {
+        case .high: .green
+        case .medium: .orange
+        case .low: .gray
+        }
+    }
+}
+
+private struct DeepAIReviewCandidateTable: View {
+    let result: DeepAIReviewResult
+
+    var body: some View {
+        Table(result.candidates) {
+            TableColumn("Rank") { candidate in
+                Text("#\(candidate.rank)")
+                    .monospacedDigit()
+            }
+            TableColumn("File") { candidate in
+                Text(candidate.fileName)
+                    .lineLimit(1)
+            }
+            TableColumn("Deep") { candidate in
+                Text(score(candidate.deepScore))
+                    .monospacedDigit()
+            }
+            TableColumn("Sharp") { candidate in
+                Text(score(candidate.normalSharpnessScore))
+                    .monospacedDigit()
+            }
+            TableColumn("Prompt") { candidate in
+                Text(candidate.maskPromptUsed?.title ?? "--")
+            }
+            TableColumn("AF") { candidate in
+                Text(candidate.afInsideMask.map { $0 ? "In" : "Out" } ?? "--")
+            }
+            TableColumn("Cover") { candidate in
+                Text(percent(candidate.maskCoverage))
+                    .monospacedDigit()
+            }
+            TableColumn("Notes") { candidate in
+                Text(candidate.caution ?? (candidate.fileID == result.recommendedFileID ? "Recommended" : ""))
+                    .foregroundStyle(candidate.caution == nil ? Color.secondary : Color.orange)
+                    .lineLimit(1)
+            }
+        }
+    }
+
+    private func score(_ value: Float?) -> String {
+        guard let value, value.isFinite else { return "--" }
+        return String(format: "%.3f", value)
+    }
+
+    private func percent(_ value: Float?) -> String {
+        guard let value, value.isFinite else { return "--" }
+        return "\(Int((value * 100).rounded()))%"
     }
 }
 

@@ -8,6 +8,20 @@ nonisolated enum SubjectSegmentationPrompt: String, CaseIterable, Codable, Ident
     case deer
     case animal
     case car
+    case birdHead
+    case animalHead
+    case face
+
+    nonisolated static let allCases: [SubjectSegmentationPrompt] = standardPrompts
+
+    nonisolated static let standardPrompts: [SubjectSegmentationPrompt] = [
+        .subject,
+        .person,
+        .bird,
+        .deer,
+        .animal,
+        .car
+    ]
 
     nonisolated var id: String {
         rawValue
@@ -21,6 +35,9 @@ nonisolated enum SubjectSegmentationPrompt: String, CaseIterable, Codable, Ident
         case .deer: "Deer"
         case .animal: "Animal"
         case .car: "Car"
+        case .birdHead: "Bird Head"
+        case .animalHead: "Animal Head"
+        case .face: "Face"
         }
     }
 
@@ -32,6 +49,9 @@ nonisolated enum SubjectSegmentationPrompt: String, CaseIterable, Codable, Ident
         case .deer: "deer"
         case .animal: "animal"
         case .car: "car"
+        case .birdHead: "bird head"
+        case .animalHead: "animal head"
+        case .face: "face"
         }
     }
 }

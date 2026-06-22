@@ -38,7 +38,7 @@ struct SubjectSegmentationControlsView: View {
             .help(helpText)
 
             Picker("SAM prompt", selection: $prompt) {
-                ForEach(SubjectSegmentationPrompt.allCases) { prompt in
+                ForEach(SubjectSegmentationPrompt.standardPrompts) { prompt in
                     Text(prompt.title).tag(prompt)
                 }
             }

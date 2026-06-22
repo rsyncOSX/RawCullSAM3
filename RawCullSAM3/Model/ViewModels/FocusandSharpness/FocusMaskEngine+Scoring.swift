@@ -363,6 +363,17 @@ extension FocusMaskEngine {
         let afInsideMask: Bool?
     }
 
+    struct DeepAISharpnessAnalysis: Equatable {
+        let finalScore: Float
+        let broadSubjectScore: Float?
+        let localDetailScore: Float?
+        let fineDetailScore: Float?
+        let maskCoverage: Float
+        let afInsideMask: Bool?
+        let usableLocalPatch: Bool
+        let backgroundDominancePenaltyApplied: Bool
+    }
+
     nonisolated static func analyzeSAMSubjectMask(
         laplacianRedValues: [Float],
         width: Int,
@@ -442,6 +453,220 @@ extension FocusMaskEngine {
             alpha[idx] = pixels[idx * 4 + 3]
         }
         return alpha
+    }
+
+    nonisolated static func analyzeDeepAISubjectMask(
+        laplacianRedValues: [Float],
+        width: Int,
+        height: Int,
+        subjectMask: CGImage,
+        afPoint: CGPoint?,
+    ) -> DeepAISharpnessAnalysis? {
+        guard width > 0,
+              height > 0,
+              laplacianRedValues.count >= width * height,
+              subjectMask.width > 0,
+              subjectMask.height > 0
+        else { return nil }
+
+        let maskAlpha = samMaskAlphaPlane(from: subjectMask)
+        guard maskAlpha.count >= subjectMask.width * subjectMask.height else { return nil }
+
+        @inline(__always)
+        func maskCoordinates(normalizedX: CGFloat, normalizedY: CGFloat) -> (col: Int, row: Int) {
+            let clampedX = min(max(normalizedX, 0), 0.999_999)
+            let clampedY = min(max(normalizedY, 0), 0.999_999)
+            return (
+                min(subjectMask.width - 1, max(0, Int(clampedX * CGFloat(subjectMask.width)))),
+                min(subjectMask.height - 1, max(0, Int(clampedY * CGFloat(subjectMask.height))))
+            )
+        }
+
+        @inline(__always)
+        func alphaAt(col: Int, row: Int) -> UInt8 {
+            maskAlpha[row * subjectMask.width + col]
+        }
+
+        let erosionRadius = max(1, min(subjectMask.width, subjectMask.height) / 90)
+
+        @inline(__always)
+        func isInteriorMaskPoint(col: Int, row: Int) -> Bool {
+            guard alphaAt(col: col, row: row) > 0 else { return false }
+            if col - erosionRadius < 0 ||
+                row - erosionRadius < 0 ||
+                col + erosionRadius >= subjectMask.width ||
+                row + erosionRadius >= subjectMask.height {
+                return false
+            }
+            return alphaAt(col: col - erosionRadius, row: row) > 0 &&
+                alphaAt(col: col + erosionRadius, row: row) > 0 &&
+                alphaAt(col: col, row: row - erosionRadius) > 0 &&
+                alphaAt(col: col, row: row + erosionRadius) > 0
+        }
+
+        let afInsideMask = afPoint.map { point -> Bool in
+            let coordinates = maskCoordinates(normalizedX: point.x, normalizedY: point.y)
+            return alphaAt(col: coordinates.col, row: coordinates.row) > 0
+        }
+
+        var broadSamples: [Float] = []
+        var interiorSamples: [Float] = []
+        var maskedCount = 0
+        var minCol = width
+        var minRow = height
+        var maxCol = 0
+        var maxRow = 0
+
+        for row in 0 ..< height {
+            if row & 0x3F == 0, Task.isCancelled { return nil }
+            let normalizedY = (CGFloat(row) + 0.5) / CGFloat(height)
+            let base = row * width
+            for col in 0 ..< width {
+                let normalizedX = (CGFloat(col) + 0.5) / CGFloat(width)
+                let maskPoint = maskCoordinates(normalizedX: normalizedX, normalizedY: normalizedY)
+                guard alphaAt(col: maskPoint.col, row: maskPoint.row) > 0 else { continue }
+                maskedCount += 1
+                minCol = min(minCol, col)
+                minRow = min(minRow, row)
+                maxCol = max(maxCol, col)
+                maxRow = max(maxRow, row)
+                let value = laplacianRedValues[base + col]
+                guard value.isFinite else { continue }
+                broadSamples.append(value)
+                if isInteriorMaskPoint(col: maskPoint.col, row: maskPoint.row) {
+                    interiorSamples.append(value)
+                }
+            }
+        }
+
+        guard maskedCount > 0, !broadSamples.isEmpty else { return nil }
+        let scoringSamples = interiorSamples.count >= 64 ? interiorSamples : broadSamples
+        let broadScore = robustTailScore(scoringSamples)
+        let fineDetailScore = microContrast(scoringSamples)
+
+        func localPatchScore() -> Float? {
+            guard maxCol > minCol, maxRow > minRow else { return nil }
+            let boxWidth = maxCol - minCol + 1
+            let boxHeight = maxRow - minRow + 1
+            let patchSide = max(16, min(boxWidth, boxHeight) / 3)
+            guard patchSide > 8 else { return nil }
+
+            var best: Float?
+            let xSteps = max(1, min(5, boxWidth / max(patchSide / 2, 1)))
+            let ySteps = max(1, min(5, boxHeight / max(patchSide / 2, 1)))
+            for yi in 0 ..< ySteps {
+                for xi in 0 ..< xSteps {
+                    let centerX = minCol + Int((Float(xi) + 0.5) / Float(xSteps) * Float(boxWidth))
+                    let centerY = minRow + Int((Float(yi) + 0.5) / Float(ySteps) * Float(boxHeight))
+                    let startX = max(minCol, centerX - patchSide / 2)
+                    let endX = min(maxCol + 1, startX + patchSide)
+                    let startY = max(minRow, centerY - patchSide / 2)
+                    let endY = min(maxRow + 1, startY + patchSide)
+                    var patchSamples: [Float] = []
+                    patchSamples.reserveCapacity((endX - startX) * (endY - startY))
+
+                    for row in startY ..< endY {
+                        let normalizedY = (CGFloat(row) + 0.5) / CGFloat(height)
+                        let base = row * width
+                        for col in startX ..< endX {
+                            let normalizedX = (CGFloat(col) + 0.5) / CGFloat(width)
+                            let maskPoint = maskCoordinates(normalizedX: normalizedX, normalizedY: normalizedY)
+                            guard isInteriorMaskPoint(col: maskPoint.col, row: maskPoint.row) else { continue }
+                            let value = laplacianRedValues[base + col]
+                            if value.isFinite {
+                                patchSamples.append(value)
+                            }
+                        }
+                    }
+
+                    guard patchSamples.count >= 64,
+                          let robust = robustTailScore(patchSamples)
+                    else { continue }
+                    let micro = microContrast(patchSamples)
+                    let coverage = Float(patchSamples.count) / Float(max((endX - startX) * (endY - startY), 1))
+                    let normalizedCenter = CGPoint(
+                        x: (CGFloat(centerX) + 0.5) / CGFloat(width),
+                        y: (CGFloat(centerY) + 0.5) / CGFloat(height),
+                    )
+                    let afProximity: Float = afPoint.map { point in
+                        let dx = Float(normalizedCenter.x - point.x)
+                        let dy = Float(normalizedCenter.y - point.y)
+                        return max(0, 1 - sqrt(dx * dx + dy * dy) / 0.20)
+                    } ?? 0
+                    let composite = robust + micro * 0.35 + coverage * 0.08 + afProximity * 0.12
+                    best = max(best ?? 0, composite)
+                }
+            }
+            return best
+        }
+
+        let local = localPatchScore()
+        var final = (broadScore ?? 0) * 0.40 + (local ?? broadScore ?? 0) * 0.40 + fineDetailScore * 0.20
+        let fullScore = robustTailScore(laplacianRedValues.filter(\.isFinite)) ?? 0
+        let backgroundDominancePenaltyApplied = fullScore > max(final * 1.45, final + 0.04)
+        if backgroundDominancePenaltyApplied {
+            final *= 0.82
+        }
+
+        return DeepAISharpnessAnalysis(
+            finalScore: final,
+            broadSubjectScore: broadScore,
+            localDetailScore: local,
+            fineDetailScore: fineDetailScore,
+            maskCoverage: Float(maskedCount) / Float(width * height),
+            afInsideMask: afInsideMask,
+            usableLocalPatch: local != nil,
+            backgroundDominancePenaltyApplied: backgroundDominancePenaltyApplied,
+        )
+    }
+
+    nonisolated func computeDeepAIReviewScore(
+        fromRawURL url: URL,
+        config: FocusDetectorConfig,
+        thumbnailMaxPixelSize: Int = SharpnessScoringSizeOption.maximumPixelSize,
+        afPoint: CGPoint? = nil,
+        scoringSource: SharpnessScoringSource = .embeddedPreview,
+        subjectMask: CGImage,
+    ) async -> DeepAISharpnessAnalysis? {
+        let result: DeepAISharpnessAnalysis?? = await Self.runCancellableWorker { [context] () -> DeepAISharpnessAnalysis? in
+            var detailedConfig = config
+            detailedConfig.fineDetailBlendWeight = max(detailedConfig.fineDetailBlendWeight, 0.45)
+            guard let cgImage = Self.decodeScoringImage(
+                at: url,
+                maxPixelSize: thumbnailMaxPixelSize,
+                scoringSource: scoringSource,
+                context: context,
+            ) else { return nil }
+            guard let boosted = Self.buildScoringLaplacian(
+                from: CIImage(cgImage: cgImage),
+                config: detailedConfig,
+            ) else { return nil }
+
+            let extent = boosted.extent
+            let width = Int(extent.width)
+            let height = Int(extent.height)
+            guard width > 0, height > 0 else { return nil }
+
+            let pixelCount = width * height
+            var rgba = [Float](repeating: 0, count: pixelCount * 4)
+            context.render(
+                boosted,
+                toBitmap: &rgba,
+                rowBytes: width * 16,
+                bounds: extent,
+                format: .RGBAf,
+                colorSpace: nil,
+            )
+            let redValues = (0 ..< pixelCount).map { rgba[$0 * 4] }
+            return Self.analyzeDeepAISubjectMask(
+                laplacianRedValues: redValues,
+                width: width,
+                height: height,
+                subjectMask: subjectMask,
+                afPoint: afPoint,
+            )
+        }
+        return result ?? nil
     }
 
     // MARK: - Scalar scoring

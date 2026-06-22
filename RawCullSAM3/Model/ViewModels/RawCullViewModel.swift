@@ -84,6 +84,7 @@ final class RawCullViewModel {
     var burstReviewQueueFilter: BurstReviewQueueFilter = .all
     var activeBurstComparisonGroupID: Int?
     var lastBurstUndoEntry: BurstUndoEntry?
+    var deepAIReviewModel = DeepAIReviewModel()
 
     /// Currently selected catalog for which startAccessingSecurityScopedResource()
     /// has succeeded. Access is scoped to the active catalog, not every catalog

@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 import RawCullCore
 @testable import RawCullSAM3
@@ -73,6 +74,54 @@ private func makeReviewQueueResult(
 @MainActor
 @Suite("CullingGridCoordinator")
 struct CullingGridCoordinatorTests {
+    @Test(.tags(.smoke))
+    func `standard SAM prompts exclude deep review prompts`() {
+        #expect(SubjectSegmentationPrompt.standardPrompts == [.subject, .person, .bird, .deer, .animal, .car])
+        #expect(!SubjectSegmentationPrompt.standardPrompts.contains(.birdHead))
+        #expect(!SubjectSegmentationPrompt.standardPrompts.contains(.animalHead))
+        #expect(!SubjectSegmentationPrompt.standardPrompts.contains(.face))
+    }
+
+    @Test(.tags(.smoke))
+    func `deep review auto prompt routing prefers specific subject prompts`() {
+        #expect(RawCullViewModel.deepAIReviewPromptAttempts(preset: .auto, subjectLabel: "bird") == [.birdHead, .bird, .subject])
+        #expect(RawCullViewModel.deepAIReviewPromptAttempts(preset: .auto, subjectLabel: "person") == [.face, .person, .subject])
+        #expect(RawCullViewModel.deepAIReviewPromptAttempts(preset: .auto, subjectLabel: "deer") == [.animalHead, .deer, .animal, .subject])
+        #expect(RawCullViewModel.deepAIReviewPromptAttempts(preset: .auto, subjectLabel: nil) == [.subject])
+    }
+
+    @Test(.tags(.smoke))
+    func `deep review mask usability rejects tiny and broad masks`() {
+        let good = SAM3MaskInventoryEntry(
+            hasMask: true,
+            confidence: 0.8,
+            coverage: 0.12,
+            boundingBox: CGRect(x: 0.2, y: 0.2, width: 0.3, height: 0.3),
+            centroid: CGPoint(x: 0.35, y: 0.35),
+            isFresh: true,
+        )
+        let broad = SAM3MaskInventoryEntry(
+            hasMask: true,
+            confidence: 0.8,
+            coverage: 0.95,
+            boundingBox: CGRect(x: 0, y: 0, width: 1, height: 1),
+            centroid: CGPoint(x: 0.5, y: 0.5),
+            isFresh: true,
+        )
+        let tiny = SAM3MaskInventoryEntry(
+            hasMask: true,
+            confidence: 0.8,
+            coverage: 0.0001,
+            boundingBox: CGRect(x: 0.5, y: 0.5, width: 0.005, height: 0.005),
+            centroid: CGPoint(x: 0.5, y: 0.5),
+            isFresh: true,
+        )
+
+        #expect(RawCullViewModel.isUsableDeepAIReviewMask(good))
+        #expect(!RawCullViewModel.isUsableDeepAIReviewMask(broad))
+        #expect(!RawCullViewModel.isUsableDeepAIReviewMask(tiny))
+    }
+
     @Test(.tags(.smoke))
     func `normal command and shift selection preserve existing grid behavior`() {
         let ids = [UUID(), UUID(), UUID(), UUID()]

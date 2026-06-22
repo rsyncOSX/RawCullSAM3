@@ -548,6 +548,89 @@ struct FocusNumericHelperTests {
     }
 
     @Test(.tags(.smoke))
+    func `deep SAM analysis ignores silhouette border and keeps interior measurable`() throws {
+        let width = 40
+        let height = 40
+        let values = (0 ..< width * height).map { idx -> Float in
+            let col = idx % width
+            let row = idx / width
+            let onMaskBorder = col == 5 || col == 34 || row == 5 || row == 34
+            let inInteriorDetail = (18 ... 22).contains(col) && (18 ... 22).contains(row)
+            if onMaskBorder { return 1.0 }
+            if inInteriorDetail { return 0.85 }
+            return 0.05
+        }
+        let mask = try #require(makeAlphaMask(width: width, height: height) { col, row in
+            (5 ... 34).contains(col) && (5 ... 34).contains(row)
+        })
+
+        let analysis = try #require(FocusMaskEngine.analyzeDeepAISubjectMask(
+            laplacianRedValues: values,
+            width: width,
+            height: height,
+            subjectMask: mask,
+            afPoint: CGPoint(x: 0.5, y: 0.5),
+        ))
+
+        #expect(analysis.maskCoverage > 0.5)
+        #expect(analysis.afInsideMask == true)
+        #expect(try #require(analysis.broadSubjectScore) < 1.0)
+        #expect(analysis.finalScore > 0)
+    }
+
+    @Test(.tags(.smoke))
+    func `deep confidence maps lead and evidence thresholds`() {
+        let winner = DeepAIReviewCandidate(
+            fileID: UUID(),
+            fileName: "winner.ARW",
+            rank: 1,
+            deepScore: 1.0,
+            normalSharpnessScore: 0.7,
+            broadSAMScore: 0.8,
+            localDetailScore: 0.9,
+            fineDetailScore: 0.2,
+            maskPromptUsed: .birdHead,
+            maskCoverage: 0.1,
+            afInsideMask: true,
+            usedFallbackMask: false,
+            caution: nil,
+        )
+        let close = DeepAIReviewCandidate(
+            fileID: UUID(),
+            fileName: "close.ARW",
+            rank: 2,
+            deepScore: 0.96,
+            normalSharpnessScore: 0.7,
+            broadSAMScore: 0.8,
+            localDetailScore: 0.9,
+            fineDetailScore: 0.2,
+            maskPromptUsed: .birdHead,
+            maskCoverage: 0.1,
+            afInsideMask: true,
+            usedFallbackMask: false,
+            caution: nil,
+        )
+        let distant = DeepAIReviewCandidate(
+            fileID: UUID(),
+            fileName: "distant.ARW",
+            rank: 2,
+            deepScore: 0.80,
+            normalSharpnessScore: 0.7,
+            broadSAMScore: 0.8,
+            localDetailScore: 0.9,
+            fineDetailScore: 0.2,
+            maskPromptUsed: .birdHead,
+            maskCoverage: 0.1,
+            afInsideMask: true,
+            usedFallbackMask: false,
+            caution: nil,
+        )
+
+        #expect(RawCullViewModel.deepAIReviewConfidence(sortedCandidates: [winner, distant]) == .high)
+        #expect(RawCullViewModel.deepAIReviewConfidence(sortedCandidates: [winner, close]) == .low)
+    }
+
+    @Test(.tags(.smoke))
     func `focus evidence selection can prefer SAM subject`() {
         let samWins = FocusMaskEngine.focusEvidenceRegion(
             globalScore: 0.10,

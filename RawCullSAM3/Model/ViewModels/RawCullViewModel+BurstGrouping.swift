@@ -3,8 +3,98 @@
 //  RawCull
 //
 
+import CoreImage
 import Foundation
 import RawCullCore
+
+enum DeepAIReviewPreset: String, CaseIterable, Identifiable, Codable {
+    case auto
+    case fullSubject
+    case headFace
+    case eyeDetail
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .auto: "Auto"
+        case .fullSubject: "Full Subject"
+        case .headFace: "Head / Face"
+        case .eyeDetail: "Eye Detail"
+        }
+    }
+}
+
+enum DeepAIReviewConfidence: String, Codable {
+    case high
+    case medium
+    case low
+
+    var title: String {
+        switch self {
+        case .high: "High"
+        case .medium: "Medium"
+        case .low: "Low"
+        }
+    }
+}
+
+struct DeepAIReviewCandidate: Identifiable, Equatable {
+    var id: FileItem.ID { fileID }
+    let fileID: FileItem.ID
+    let fileName: String
+    let rank: Int
+    let deepScore: Float?
+    let normalSharpnessScore: Float?
+    let broadSAMScore: Float?
+    let localDetailScore: Float?
+    let fineDetailScore: Float?
+    let maskPromptUsed: SubjectSegmentationPrompt?
+    let maskCoverage: Float?
+    let afInsideMask: Bool?
+    let usedFallbackMask: Bool
+    let caution: String?
+}
+
+struct DeepAIReviewResult: Equatable {
+    let groupID: Int
+    let groupSignature: BurstGroupSignature?
+    let preset: DeepAIReviewPreset
+    let candidates: [DeepAIReviewCandidate]
+    let recommendedFileID: FileItem.ID?
+    let confidence: DeepAIReviewConfidence
+    let reasons: [String]
+    let cautions: [String]
+    let timestamp: Date
+
+    var recommendedCandidate: DeepAIReviewCandidate? {
+        recommendedFileID.flatMap { id in candidates.first { $0.fileID == id } }
+    }
+
+    var recommendationLabel: String {
+        guard let recommendedCandidate else { return "Deep: review" }
+        return "Deep: frame \(recommendedCandidate.rank)"
+    }
+
+    var explanation: String {
+        let items = reasons + cautions
+        return items.prefix(3).joined(separator: " · ")
+    }
+}
+
+@Observable @MainActor
+final class DeepAIReviewModel {
+    var results: [Int: DeepAIReviewResult] = [:]
+    var isRunning = false
+    var activeGroupID: Int?
+    var presentedGroupID: Int?
+    var preset: DeepAIReviewPreset = .auto
+    var statusText = ""
+
+    func result(for groupID: Int) -> DeepAIReviewResult? {
+        results[groupID]
+    }
+}
 
 /// Precomputed "best frame" info for a burst group — consumed by the
 /// grid's burst-section header so the header body does no scoring math
@@ -109,6 +199,114 @@ extension RawCullViewModel {
     }
 
     // MARK: - User actions
+
+    var isDeepAIReviewUnavailable: Bool {
+        isCreatingSAM3Masks ||
+            sharpnessModel.isScoring ||
+            similarityModel.isIndexing ||
+            similarityModel.isGrouping ||
+            burstAnalysisProgress.isRunning ||
+            deepAIReviewModel.isRunning
+    }
+
+    func presentDeepAIReview(groupID: Int) {
+        deepAIReviewModel.presentedGroupID = groupID
+    }
+
+    func deepAIReviewResult(for groupID: Int) -> DeepAIReviewResult? {
+        deepAIReviewModel.result(for: groupID)
+    }
+
+    func runDeepAIReview(for groupFiles: [FileItem]) async {
+        guard !groupFiles.isEmpty,
+              !isDeepAIReviewUnavailable
+        else { return }
+
+        let groupID = groupID(for: groupFiles)
+        guard groupID >= 0 else { return }
+
+        deepAIReviewModel.isRunning = true
+        deepAIReviewModel.activeGroupID = groupID
+        deepAIReviewModel.statusText = "Preparing deep review..."
+
+        defer {
+            deepAIReviewModel.isRunning = false
+            deepAIReviewModel.activeGroupID = nil
+            deepAIReviewModel.statusText = ""
+        }
+
+        let candidateFiles = deepAIReviewCandidateFiles(groupFiles: groupFiles, groupID: groupID)
+        let filesByID = Dictionary(uniqueKeysWithValues: groupFiles.map { ($0.id, $0) })
+        let engine = FocusMaskEngine()
+        let baseConfig = sharpnessModel.effectiveFocusConfig
+        let preset = deepAIReviewModel.preset
+        var rows: [DeepAIReviewCandidate] = []
+
+        for (rank, file) in candidateFiles.enumerated() {
+            guard !Task.isCancelled else { return }
+            deepAIReviewModel.statusText = "Deep reviewing \(file.name)..."
+            var fileConfig = baseConfig
+            fileConfig.iso = file.exifData?.isoValue ?? 400
+            fileConfig.apertureHint = FocusDetectorConfig.ApertureHint.from(aperture: file.exifData?.apertureValue)
+
+            let maskChoice = await bestDeepAIReviewMask(
+                for: file,
+                preset: preset,
+                subjectLabel: sharpnessModel.saliencyInfo[file.id]?.subjectLabel,
+            )
+            let deepAnalysis: FocusMaskEngine.DeepAISharpnessAnalysis? = if let mask = maskChoice?.result.mask {
+                await engine.computeDeepAIReviewScore(
+                    fromRawURL: file.url,
+                    config: fileConfig,
+                    thumbnailMaxPixelSize: SharpnessScoringSizeOption.maximumPixelSize,
+                    afPoint: file.afFocusNormalized,
+                    scoringSource: sharpnessModel.scoringSource,
+                    subjectMask: mask,
+                )
+            } else {
+                nil
+            }
+
+            let caution: String? = if maskChoice == nil {
+                "No usable SAM mask"
+            } else if deepAnalysis == nil {
+                "Deep sharpness unavailable"
+            } else if deepAnalysis?.usableLocalPatch == false {
+                "No reliable local patch"
+            } else if deepAnalysis?.backgroundDominancePenaltyApplied == true {
+                "Background detail dominated"
+            } else {
+                nil
+            }
+
+            rows.append(DeepAIReviewCandidate(
+                fileID: file.id,
+                fileName: file.name,
+                rank: rank + 1,
+                deepScore: deepAnalysis?.finalScore,
+                normalSharpnessScore: sharpnessModel.scores[file.id],
+                broadSAMScore: deepAnalysis?.broadSubjectScore,
+                localDetailScore: deepAnalysis?.localDetailScore,
+                fineDetailScore: deepAnalysis?.fineDetailScore,
+                maskPromptUsed: maskChoice?.result.prompt,
+                maskCoverage: deepAnalysis?.maskCoverage ?? maskChoice?.geometry.coverage,
+                afInsideMask: deepAnalysis?.afInsideMask,
+                usedFallbackMask: maskChoice?.usedFallback ?? false,
+                caution: caution,
+            ))
+        }
+
+        let result = makeDeepAIReviewResult(
+            groupID: groupID,
+            groupFiles: groupFiles,
+            candidateRows: rows,
+            preset: preset,
+        )
+        deepAIReviewModel.results[groupID] = result
+        if deepAIReviewModel.presentedGroupID == nil {
+            deepAIReviewModel.presentedGroupID = groupID
+        }
+    }
 
     /// Rate the recommended frame in `groupFiles` at ★★★ and reject all others.
     func keepBestInGroup(from groupFiles: [FileItem]) {
@@ -270,7 +468,7 @@ extension RawCullViewModel {
         isManualWinner: Bool,
     ) -> BestInGroupInfo {
         let percent: Int? = if let score = scores[file.id], maxScore > 0 {
-            Int(min(score / maxScore, 1.0) * 100)
+            Int(Swift.min(score / maxScore, 1.0) * 100)
         } else {
             nil
         }
@@ -348,6 +546,188 @@ extension RawCullViewModel {
     private func canApplyOneClickCulling(groupID: Int) -> Bool {
         guard let result = burstAnalysisResults[groupID] else { return false }
         return result.canApplyOneClickCulling(hasSharpnessScores: !sharpnessModel.scores.isEmpty)
+    }
+
+    private struct DeepAIReviewMaskChoice {
+        let result: SubjectSegmentationResult
+        let geometry: SAM3MaskInventoryEntry
+        let usedFallback: Bool
+    }
+
+    nonisolated static func deepAIReviewPromptAttempts(
+        preset: DeepAIReviewPreset,
+        subjectLabel: String?,
+    ) -> [SubjectSegmentationPrompt] {
+        switch preset {
+        case .fullSubject:
+            return [.subject]
+
+        case .headFace:
+            return [.birdHead, .animalHead, .face, .subject]
+
+        case .eyeDetail:
+            return [.birdHead, .animalHead, .face, .subject]
+
+        case .auto:
+            let label = subjectLabel?.lowercased() ?? ""
+            if label.contains("bird") || label.contains("raptor") || label.contains("wildlife") {
+                return [.birdHead, .bird, .subject]
+            }
+            if label.contains("person") || label.contains("people") || label.contains("human") || label.contains("face") {
+                return [.face, .person, .subject]
+            }
+            if label.contains("deer") {
+                return [.animalHead, .deer, .animal, .subject]
+            }
+            if label.contains("animal") || label.contains("mammal") {
+                return [.animalHead, .animal, .subject]
+            }
+            return [.subject]
+        }
+    }
+
+    nonisolated static func isUsableDeepAIReviewMask(_ geometry: SAM3MaskInventoryEntry) -> Bool {
+        geometry.hasMask &&
+            geometry.coverage >= 0.001 &&
+            geometry.coverage <= 0.85 &&
+            geometry.boundingBox.width > 0.01 &&
+            geometry.boundingBox.height > 0.01
+    }
+
+    nonisolated static func deepAIReviewConfidence(
+        sortedCandidates: [DeepAIReviewCandidate],
+    ) -> DeepAIReviewConfidence {
+        guard let first = sortedCandidates.first,
+              let firstScore = first.deepScore
+        else { return .low }
+        let secondScore = sortedCandidates.dropFirst().first?.deepScore ?? 0
+        let lead = (firstScore - secondScore) / Swift.max(firstScore, 1e-6)
+        let hasStrongEvidence = first.maskPromptUsed != nil &&
+            first.localDetailScore != nil &&
+            first.caution == nil
+        if lead >= 0.12, hasStrongEvidence, !first.usedFallbackMask {
+            return .high
+        }
+        if lead >= 0.05 || (hasStrongEvidence && first.usedFallbackMask) {
+            return .medium
+        }
+        return .low
+    }
+
+    private func deepAIReviewCandidateFiles(groupFiles: [FileItem], groupID: Int) -> [FileItem] {
+        guard groupFiles.count > 12 else { return groupFiles }
+        let filesByID = Dictionary(uniqueKeysWithValues: groupFiles.map { ($0.id, $0) })
+        let ranked = burstAnalysisResults[groupID]?.candidates.compactMap { filesByID[$0.fileID] } ?? []
+        if ranked.count >= 8 {
+            return Array(ranked.prefix(8))
+        }
+        return Array(groupFiles.prefix(8))
+    }
+
+    private func bestDeepAIReviewMask(
+        for file: FileItem,
+        preset: DeepAIReviewPreset,
+        subjectLabel: String?,
+    ) async -> DeepAIReviewMaskChoice? {
+        let attempts = Self.deepAIReviewPromptAttempts(preset: preset, subjectLabel: subjectLabel)
+        var fallback: DeepAIReviewMaskChoice?
+        for (index, prompt) in attempts.enumerated() {
+            guard !Task.isCancelled else { return nil }
+            guard let result = await loadOrGenerateDeepAIReviewMask(for: file, prompt: prompt) else { continue }
+            let geometry = SAM3MaskInventoryEntry.geometry(
+                from: result.mask,
+                sourceModificationDate: file.dateModified,
+                cacheModificationDate: nil,
+                confidence: result.confidence,
+            )
+            let choice = DeepAIReviewMaskChoice(
+                result: result,
+                geometry: geometry,
+                usedFallback: index > 0,
+            )
+            if fallback == nil, geometry.hasMask {
+                fallback = choice
+            }
+            if Self.isUsableDeepAIReviewMask(geometry) {
+                return choice
+            }
+        }
+        return fallback
+    }
+
+    private func loadOrGenerateDeepAIReviewMask(
+        for file: FileItem,
+        prompt: SubjectSegmentationPrompt,
+    ) async -> SubjectSegmentationResult? {
+        let diskCache = SharedMemoryCache.shared.sam3MaskDiskCache
+        if let cached = await diskCache.load(
+            for: file.url,
+            fileID: file.id,
+            prompt: prompt,
+            modelVersion: SAM3SubjectMaskCacheReader.modelVersion,
+            inputMaxSide: SAM3SubjectMaskCacheReader.inputMaxSide,
+        ) {
+            return cached
+        }
+
+        let context = CIContext(options: [.cacheIntermediates: false])
+        guard let image = FocusMaskEngine.decodeScoringImage(
+            at: file.url,
+            maxPixelSize: SAM3SubjectMaskCacheReader.inputMaxSide,
+            scoringSource: .embeddedPreview,
+            context: context,
+        ) else {
+            return nil
+        }
+
+        do {
+            return try await sam3SubjectSegmentationActor.segment(
+                image: image,
+                fileID: file.id,
+                fileURL: file.url,
+                prompt: prompt,
+            )
+        } catch {
+            return nil
+        }
+    }
+
+    private func makeDeepAIReviewResult(
+        groupID: Int,
+        groupFiles: [FileItem],
+        candidateRows: [DeepAIReviewCandidate],
+        preset: DeepAIReviewPreset,
+    ) -> DeepAIReviewResult {
+        let sorted = candidateRows.sorted {
+            ($0.deepScore ?? -.infinity) > ($1.deepScore ?? -.infinity)
+        }
+        let recommended = sorted.first(where: { $0.deepScore?.isFinite == true })
+        let confidence = Self.deepAIReviewConfidence(sortedCandidates: sorted)
+        let reasons: [String]
+        if let recommended {
+            var items = ["Strongest deep subject detail"]
+            if recommended.afInsideMask == true {
+                items.append("AF inside mask")
+            }
+            if recommended.localDetailScore != nil {
+                items.append("local patch evidence")
+            }
+            reasons = items
+        } else {
+            reasons = []
+        }
+        let cautions = Array(Set(candidateRows.compactMap(\.caution))).sorted()
+        return DeepAIReviewResult(
+            groupID: groupID,
+            groupSignature: BurstGroupSignature(files: groupFiles, catalog: selectedSource?.url),
+            preset: preset,
+            candidates: sorted,
+            recommendedFileID: recommended?.fileID,
+            confidence: confidence,
+            reasons: reasons,
+            cautions: cautions,
+            timestamp: Date(),
+        )
     }
 
     func manualOverrideWinner(in groupFiles: [FileItem]) -> (file: FileItem, override: BurstWinnerOverride)? {
