@@ -666,7 +666,7 @@ extension FocusMaskEngine {
                 afPoint: afPoint,
             )
         }
-        return result
+        return result ?? nil
     }
 
     // MARK: - Scalar scoring
