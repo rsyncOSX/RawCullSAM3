@@ -44,6 +44,7 @@ struct DeepAIReviewCandidate: Identifiable, Equatable {
     let fileID: FileItem.ID
     let fileName: String
     let rank: Int
+    var isCompleted = true
     let deepScore: Float?
     let normalSharpnessScore: Float?
     let broadSAMScore: Float?
@@ -52,8 +53,14 @@ struct DeepAIReviewCandidate: Identifiable, Equatable {
     let maskPromptUsed: SubjectSegmentationPrompt?
     let maskCoverage: Float?
     let afInsideMask: Bool?
+    var promptVerified: Bool?
     let usedFallbackMask: Bool
     let caution: String?
+
+    var promptVerificationLabel: String {
+        guard let promptVerified else { return "--" }
+        return promptVerified ? "Found" : "Miss"
+    }
 }
 
 struct DeepAIReviewResult: Equatable {
@@ -236,11 +243,35 @@ extension RawCullViewModel {
         }
 
         let candidateFiles = deepAIReviewCandidateFiles(groupFiles: groupFiles, groupID: groupID)
-        let filesByID = Dictionary(uniqueKeysWithValues: groupFiles.map { ($0.id, $0) })
         let engine = FocusMaskEngine()
         let baseConfig = sharpnessModel.effectiveFocusConfig
         let preset = deepAIReviewModel.preset
         var rows: [DeepAIReviewCandidate] = []
+
+        deepAIReviewModel.results[groupID] = makeDeepAIReviewResult(
+            groupID: groupID,
+            groupFiles: groupFiles,
+            candidateRows: candidateFiles.enumerated().map { index, file in
+                DeepAIReviewCandidate(
+                    fileID: file.id,
+                    fileName: file.name,
+                    rank: index + 1,
+                    isCompleted: false,
+                    deepScore: nil,
+                    normalSharpnessScore: sharpnessModel.scores[file.id],
+                    broadSAMScore: nil,
+                    localDetailScore: nil,
+                    fineDetailScore: nil,
+                    maskPromptUsed: nil,
+                    maskCoverage: nil,
+                    afInsideMask: nil,
+                    promptVerified: nil,
+                    usedFallbackMask: false,
+                    caution: nil,
+                )
+            },
+            preset: preset,
+        )
 
         for (rank, file) in candidateFiles.enumerated() {
             guard !Task.isCancelled else { return }
@@ -266,9 +297,15 @@ extension RawCullViewModel {
             } else {
                 nil
             }
+            let promptVerified = Self.deepAIReviewPromptVerified(
+                preset: preset,
+                maskChoice: maskChoice,
+            )
 
             let caution: String? = if maskChoice == nil {
                 "No usable SAM mask"
+            } else if promptVerified == false, preset == .headFace || preset == .eyeDetail {
+                "Specific prompt not found"
             } else if deepAnalysis == nil {
                 "Deep sharpness unavailable"
             } else if deepAnalysis?.usableLocalPatch == false {
@@ -291,9 +328,40 @@ extension RawCullViewModel {
                 maskPromptUsed: maskChoice?.result.prompt,
                 maskCoverage: deepAnalysis?.maskCoverage ?? maskChoice?.geometry.coverage,
                 afInsideMask: deepAnalysis?.afInsideMask,
+                promptVerified: promptVerified,
                 usedFallbackMask: maskChoice?.usedFallback ?? false,
                 caution: caution,
             ))
+
+            let completedIDs = Set(rows.map(\.fileID))
+            let placeholders = candidateFiles
+                .enumerated()
+                .filter { !completedIDs.contains($0.element.id) }
+                .map { index, file in
+                    DeepAIReviewCandidate(
+                        fileID: file.id,
+                        fileName: file.name,
+                        rank: index + 1,
+                        isCompleted: false,
+                        deepScore: nil,
+                        normalSharpnessScore: sharpnessModel.scores[file.id],
+                        broadSAMScore: nil,
+                        localDetailScore: nil,
+                        fineDetailScore: nil,
+                        maskPromptUsed: nil,
+                        maskCoverage: nil,
+                        afInsideMask: nil,
+                        promptVerified: nil,
+                        usedFallbackMask: false,
+                        caution: nil,
+                    )
+                }
+            deepAIReviewModel.results[groupID] = makeDeepAIReviewResult(
+                groupID: groupID,
+                groupFiles: groupFiles,
+                candidateRows: rows + placeholders,
+                preset: preset,
+            )
         }
 
         let result = makeDeepAIReviewResult(
@@ -606,6 +674,22 @@ extension RawCullViewModel {
             geometry.coverage <= 0.85 &&
             geometry.boundingBox.width > 0.01 &&
             geometry.boundingBox.height > 0.01
+    }
+
+    private nonisolated static func deepAIReviewPromptVerified(
+        preset: DeepAIReviewPreset,
+        maskChoice: DeepAIReviewMaskChoice?,
+    ) -> Bool? {
+        guard let maskChoice else { return false }
+        guard isUsableDeepAIReviewMask(maskChoice.geometry) else { return false }
+        switch preset {
+        case .fullSubject:
+            return maskChoice.result.prompt == .subject
+        case .headFace, .eyeDetail:
+            return [.birdHead, .animalHead, .face].contains(maskChoice.result.prompt)
+        case .auto:
+            return !maskChoice.usedFallback
+        }
     }
 
     nonisolated static func deepAIReviewConfidence(

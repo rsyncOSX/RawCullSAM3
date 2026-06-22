@@ -841,6 +841,11 @@ private struct DeepAIReviewSheetView: View {
                 }
                 .pickerStyle(.segmented)
                 .frame(maxWidth: 420)
+                .disabled(model.isRunning)
+                .onChange(of: model.preset) {
+                    guard !files.isEmpty, !model.isRunning else { return }
+                    onRun(files)
+                }
 
                 Button {
                     onRun(files)
@@ -885,7 +890,7 @@ private struct DeepAIReviewSheetView: View {
             }
         }
         .padding(16)
-        .frame(minWidth: 760, minHeight: 460)
+        .frame(minWidth: 1120, idealWidth: 1220, minHeight: 520, idealHeight: 620)
     }
 }
 
@@ -931,6 +936,10 @@ private struct DeepAIReviewCandidateTable: View {
 
     var body: some View {
         Table(result.candidates) {
+            TableColumn("Done") { candidate in
+                Text(candidate.isCompleted ? "Yes" : "...")
+                    .foregroundStyle(candidate.isCompleted ? Color.green : Color.secondary)
+            }
             TableColumn("Rank") { candidate in
                 Text("#\(candidate.rank)")
                     .monospacedDigit()
@@ -948,7 +957,12 @@ private struct DeepAIReviewCandidateTable: View {
                     .monospacedDigit()
             }
             TableColumn("Prompt") { candidate in
-                Text(candidate.maskPromptUsed?.title ?? "--")
+                Text(promptLabel(candidate))
+                    .lineLimit(1)
+            }
+            TableColumn("Found") { candidate in
+                Text(candidate.promptVerificationLabel)
+                    .foregroundStyle(promptVerificationColor(candidate.promptVerified))
             }
             TableColumn("AF") { candidate in
                 Text(candidate.afInsideMask.map { $0 ? "In" : "Out" } ?? "--")
@@ -973,6 +987,19 @@ private struct DeepAIReviewCandidateTable: View {
     private func percent(_ value: Float?) -> String {
         guard let value, value.isFinite else { return "--" }
         return "\(Int((value * 100).rounded()))%"
+    }
+
+    private func promptLabel(_ candidate: DeepAIReviewCandidate) -> String {
+        guard let prompt = candidate.maskPromptUsed else { return "--" }
+        return candidate.usedFallbackMask ? "\(prompt.title) fallback" : prompt.title
+    }
+
+    private func promptVerificationColor(_ value: Bool?) -> Color {
+        switch value {
+        case true: .green
+        case false: .orange
+        case nil: .secondary
+        }
     }
 }
 
