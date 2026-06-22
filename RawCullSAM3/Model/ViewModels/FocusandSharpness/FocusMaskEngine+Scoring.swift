@@ -478,7 +478,7 @@ extension FocusMaskEngine {
             let clampedY = min(max(normalizedY, 0), 0.999_999)
             return (
                 min(subjectMask.width - 1, max(0, Int(clampedX * CGFloat(subjectMask.width)))),
-                min(subjectMask.height - 1, max(0, Int(clampedY * CGFloat(subjectMask.height))))
+                min(subjectMask.height - 1, max(0, Int(clampedY * CGFloat(subjectMask.height)))),
             )
         }
 
@@ -666,7 +666,7 @@ extension FocusMaskEngine {
                 afPoint: afPoint,
             )
         }
-        return result ?? nil
+        return result
     }
 
     // MARK: - Scalar scoring

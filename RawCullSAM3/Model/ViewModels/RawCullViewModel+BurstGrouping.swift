@@ -13,7 +13,9 @@ enum DeepAIReviewPreset: String, CaseIterable, Identifiable, Codable {
     case headFace
     case eyeDetail
 
-    var id: String { rawValue }
+    var id: String {
+        rawValue
+    }
 
     var title: String {
         switch self {
@@ -40,7 +42,10 @@ enum DeepAIReviewConfidence: String, Codable {
 }
 
 struct DeepAIReviewCandidate: Identifiable, Equatable {
-    var id: FileItem.ID { fileID }
+    var id: FileItem.ID {
+        fileID
+    }
+
     let fileID: FileItem.ID
     let fileName: String
     let rank: Int
@@ -685,8 +690,10 @@ extension RawCullViewModel {
         switch preset {
         case .fullSubject:
             return maskChoice.result.prompt == .subject
+
         case .headFace, .eyeDetail:
             return [.birdHead, .animalHead, .face].contains(maskChoice.result.prompt)
+
         case .auto:
             return !maskChoice.usedFallback
         }

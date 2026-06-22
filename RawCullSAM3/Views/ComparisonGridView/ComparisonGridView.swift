@@ -393,7 +393,7 @@ struct ComparisonGridView: View {
 
         case .toggleFocusPoints:
             return toggleSelectedFocusPoints()
-            
+
         case .inspectActualPixels:
             return inspectSelectedActualPixels()
 
@@ -444,7 +444,7 @@ struct ComparisonGridView: View {
         useThumbnailSourceByFileID[selectedID, default: false].toggle()
         return .handled
     }
-    
+
     private func inspectSelectedActualPixels() -> KeyPress.Result {
         guard selectedFileIDForInteraction() != nil else { return .ignored }
         viewModel.openZoomOverlay(

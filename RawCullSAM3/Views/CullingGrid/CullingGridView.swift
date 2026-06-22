@@ -249,7 +249,7 @@ private struct BurstGroupHeaderView: View {
                 viewModel.presentDeepAIReview(groupID: groupID)
             }
         } label: {
-            if viewModel.deepAIReviewModel.isRunning && viewModel.deepAIReviewModel.activeGroupID == groupID {
+            if viewModel.deepAIReviewModel.isRunning, viewModel.deepAIReviewModel.activeGroupID == groupID {
                 ProgressView()
                     .controlSize(.mini)
             } else {
