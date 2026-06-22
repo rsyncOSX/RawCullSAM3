@@ -149,11 +149,6 @@ struct MainThumbnailImageView: View {
                                             density: .compact,
                                         )
 
-                                        SubjectQualityBadgeView(
-                                            model: SubjectQualityBadgeModel(entry: viewModel.maskInventory[file.id]),
-                                            isCompact: false,
-                                        )
-
                                         VStack(alignment: .leading, spacing: 2) {
                                             Text(file.name)
                                                 .font(.headline)

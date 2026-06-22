@@ -184,10 +184,6 @@ struct ImageItemView: View {
                             density: .compact,
                         )
 
-                        SubjectQualityBadgeView(
-                            model: SubjectQualityBadgeModel(entry: viewModel.maskInventory[file.id]),
-                        )
-
                         if let clipLabel = viewModel.similarityModel.clipLabels[file.id],
                            !clipLabel.isEmpty {
                             clipBadge(clipLabel)

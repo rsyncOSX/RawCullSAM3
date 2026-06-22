@@ -40,7 +40,6 @@ struct ComparisonGridView: View {
                                         burstCandidate: burstCandidate(for: file, in: burstAnalysis),
                                         burstRating: viewModel.getRating(for: file),
                                         sharpnessContext: sharpnessContext(for: file),
-                                        subjectQuality: SubjectQualityBadgeModel(entry: viewModel.maskInventory[file.id]),
                                         inspectorIsPresented: showCandidateInspector,
                                         onSelect: { viewModel.selectedFileID = file.id },
                                         onRate: { rating in

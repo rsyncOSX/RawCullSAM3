@@ -15,7 +15,6 @@ struct ComparisonImagePaneView: View {
     let burstCandidate: BurstCandidateScore?
     let burstRating: Int
     let sharpnessContext: SharpnessComparisonContext?
-    let subjectQuality: SubjectQualityBadgeModel
     let inspectorIsPresented: Bool
     let onSelect: () -> Void
     let onRate: (Int) -> Void
@@ -159,9 +158,6 @@ struct ComparisonImagePaneView: View {
                         sharpnessBadge(for: sharpnessContext)
                             .fixedSize(horizontal: true, vertical: false)
                     }
-
-                    SubjectQualityBadgeView(model: subjectQuality, isCompact: false)
-                        .fixedSize(horizontal: true, vertical: false)
 
                     Text(file.name)
                         .font(.subheadline.weight(.semibold))
