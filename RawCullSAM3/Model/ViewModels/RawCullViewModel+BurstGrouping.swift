@@ -650,10 +650,10 @@ extension RawCullViewModel {
             return [.subject]
 
         case .headFace:
-            return [.birdHead, .animalHead, .face, .subject]
+            return deepAIReviewSpecificPromptAttempts(subjectLabel: subjectLabel)
 
         case .eyeDetail:
-            return [.birdHead, .animalHead, .face, .subject]
+            return deepAIReviewSpecificPromptAttempts(subjectLabel: subjectLabel)
 
         case .auto:
             let label = subjectLabel?.lowercased() ?? ""
@@ -671,6 +671,25 @@ extension RawCullViewModel {
             }
             return [.subject]
         }
+    }
+
+    nonisolated static func deepAIReviewSpecificPromptAttempts(
+        subjectLabel: String?,
+    ) -> [SubjectSegmentationPrompt] {
+        let label = subjectLabel?.lowercased() ?? ""
+        if label.contains("bird") || label.contains("raptor") || label.contains("wildlife") {
+            return [.birdHead, .bird, .subject]
+        }
+        if label.contains("person") || label.contains("people") || label.contains("human") || label.contains("face") {
+            return [.face, .person, .subject]
+        }
+        if label.contains("deer") {
+            return [.animalHead, .deer, .animal, .subject]
+        }
+        if label.contains("animal") || label.contains("mammal") {
+            return [.animalHead, .animal, .subject]
+        }
+        return [.subject]
     }
 
     nonisolated static func isUsableDeepAIReviewMask(_ geometry: SAM3MaskInventoryEntry) -> Bool {
@@ -692,7 +711,7 @@ extension RawCullViewModel {
             return maskChoice.result.prompt == .subject
 
         case .headFace, .eyeDetail:
-            return [.birdHead, .animalHead, .face].contains(maskChoice.result.prompt)
+            return !maskChoice.usedFallback && [.birdHead, .animalHead, .face].contains(maskChoice.result.prompt)
 
         case .auto:
             return !maskChoice.usedFallback

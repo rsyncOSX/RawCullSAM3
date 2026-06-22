@@ -91,6 +91,13 @@ struct CullingGridCoordinatorTests {
     }
 
     @Test(.tags(.smoke))
+    func `explicit deep review prompts follow subject label instead of always bird head`() {
+        #expect(RawCullViewModel.deepAIReviewPromptAttempts(preset: .eyeDetail, subjectLabel: "animal") == [.animalHead, .animal, .subject])
+        #expect(RawCullViewModel.deepAIReviewPromptAttempts(preset: .headFace, subjectLabel: "person") == [.face, .person, .subject])
+        #expect(RawCullViewModel.deepAIReviewPromptAttempts(preset: .headFace, subjectLabel: "bird") == [.birdHead, .bird, .subject])
+    }
+
+    @Test(.tags(.smoke))
     func `deep review mask usability rejects tiny and broad masks`() {
         let good = SAM3MaskInventoryEntry(
             hasMask: true,
