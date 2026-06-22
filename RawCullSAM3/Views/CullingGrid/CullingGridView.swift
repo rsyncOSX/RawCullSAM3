@@ -248,9 +248,6 @@ private struct BurstGroupHeaderView: View {
             if let groupID {
                 viewModel.presentDeepAIReview(groupID: groupID)
             }
-            Task {
-                await viewModel.runDeepAIReview(for: files)
-            }
         } label: {
             if viewModel.deepAIReviewModel.isRunning && viewModel.deepAIReviewModel.activeGroupID == groupID {
                 ProgressView()
@@ -263,7 +260,7 @@ private struct BurstGroupHeaderView: View {
         .font(.caption)
         .controlSize(.mini)
         .disabled(viewModel.isDeepAIReviewUnavailable)
-        .help(viewModel.isDeepAIReviewUnavailable ? "Deep Review is unavailable while analysis is running" : "Run detailed SAM3 subject sharpness review")
+        .help(viewModel.isDeepAIReviewUnavailable ? "Deep Review is unavailable while analysis is running" : "Open detailed SAM3 subject sharpness review")
     }
 
     private func burstActionHelp(_ fallback: String) -> String {
@@ -842,10 +839,6 @@ private struct DeepAIReviewSheetView: View {
                 .pickerStyle(.segmented)
                 .frame(maxWidth: 420)
                 .disabled(model.isRunning)
-                .onChange(of: model.preset) {
-                    guard !files.isEmpty, !model.isRunning else { return }
-                    onRun(files)
-                }
 
                 Button {
                     onRun(files)
