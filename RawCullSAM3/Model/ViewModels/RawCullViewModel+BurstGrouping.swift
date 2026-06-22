@@ -344,6 +344,20 @@ extension RawCullViewModel {
         applyManualWinnerOverrides(files: burstAnalysisTargetFiles)
     }
 
+    func markDeepAIReviewWinner(_ winnerID: FileItem.ID?, in groupFiles: [FileItem]) {
+        guard let selectedSource,
+              !isCreatingSAM3Masks,
+              let winner = winnerID.flatMap({ id in groupFiles.first { $0.id == id } })
+        else { return }
+
+        let override = BurstWinnerOverride(
+            winnerFileName: winner.name,
+            memberFileNames: groupFiles.map(\.name),
+        )
+        cullingModel.upsertBurstWinnerOverride(override, in: selectedSource.url)
+        applyManualWinnerOverrides(files: burstAnalysisTargetFiles)
+    }
+
     /// Rate the recommended frame at ★★★, second best at ★★, and reject others.
     func keepTopTwoInGroup(from groupFiles: [FileItem]) {
         guard !groupFiles.isEmpty,

@@ -548,6 +548,9 @@ struct CullingGridView<Header: View>: View {
                 onRun: { groupFiles in
                     Task { await viewModel.runDeepAIReview(for: groupFiles) }
                 },
+                onClose: {
+                    closeDeepReviewSheet()
+                },
             )
         }
         .onKeyPress(characters: CharacterSet(charactersIn: "\rBb2RrUu")) { press in
@@ -693,7 +696,7 @@ struct CullingGridView<Header: View>: View {
             viewModel.deepAIReviewModel.presentedGroupID != nil
         } set: { isPresented in
             if !isPresented {
-                viewModel.deepAIReviewModel.presentedGroupID = nil
+                closeDeepReviewSheet()
             }
         }
     }
@@ -701,6 +704,16 @@ struct CullingGridView<Header: View>: View {
     private var filesForPresentedDeepReview: [FileItem] {
         guard let groupID = viewModel.deepAIReviewModel.presentedGroupID else { return [] }
         return visibleBurstGroups.first { $0.id == groupID }?.files ?? []
+    }
+
+    private func closeDeepReviewSheet() {
+        guard let groupID = viewModel.deepAIReviewModel.presentedGroupID else { return }
+        let groupFiles = visibleBurstGroups.first { $0.id == groupID }?.files ?? []
+        let result = viewModel.deepAIReviewModel.result(for: groupID)
+        if !groupFiles.isEmpty, !viewModel.deepAIReviewModel.isRunning {
+            viewModel.markDeepAIReviewWinner(result?.recommendedFileID, in: groupFiles)
+        }
+        viewModel.deepAIReviewModel.presentedGroupID = nil
     }
 
     /// Builds the thumbnail cell for a file inside a burst group.
@@ -812,6 +825,7 @@ private struct DeepAIReviewSheetView: View {
     @Bindable var model: DeepAIReviewModel
     let files: [FileItem]
     let onRun: ([FileItem]) -> Void
+    let onClose: () -> Void
 
     private var result: DeepAIReviewResult? {
         model.presentedGroupID.flatMap { model.result(for: $0) }
@@ -840,6 +854,16 @@ private struct DeepAIReviewSheetView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .disabled(files.isEmpty || model.isRunning)
+
+                Spacer()
+
+                Button {
+                    onClose()
+                } label: {
+                    Label(result?.recommendedFileID == nil ? "Close" : "Close & Mark Winner", systemImage: "xmark")
+                }
+                .buttonStyle(.bordered)
+                .disabled(model.isRunning)
             }
 
             if model.isRunning, !model.statusText.isEmpty {
