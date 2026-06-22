@@ -62,9 +62,9 @@ struct DeepAIReviewCandidate: Identifiable, Equatable {
     let usedFallbackMask: Bool
     let caution: String?
 
-    var promptVerificationLabel: String {
+    var maskVerificationLabel: String {
         guard let promptVerified else { return "--" }
-        return promptVerified ? "Found" : "Miss"
+        return promptVerified ? "OK" : "Miss"
     }
 }
 

@@ -953,8 +953,8 @@ private struct DeepAIReviewCandidateTable: View {
                 Text(promptLabel(candidate))
                     .lineLimit(1)
             }
-            TableColumn("Found") { candidate in
-                Text(candidate.promptVerificationLabel)
+            TableColumn("Mask") { candidate in
+                Text(candidate.maskVerificationLabel)
                     .foregroundStyle(promptVerificationColor(candidate.promptVerified))
             }
             TableColumn("AF") { candidate in
