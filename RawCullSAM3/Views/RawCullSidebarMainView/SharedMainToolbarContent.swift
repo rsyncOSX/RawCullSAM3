@@ -55,14 +55,6 @@ struct SharedMainToolbarContent: ToolbarContent {
             }
 
             ToolbarItem(placement: .status) {
-                Button(action: toggleSAM3MaskCreation) {
-                    sam3ToolbarButtonLabel
-                }
-                .disabled(sam3ToolbarIsDisabled)
-                .help(sam3ToolbarHelp)
-            }
-
-            ToolbarItem(placement: .status) {
                 Button(action: selectReviewQueueMode) {
                     Label("Review", systemImage: "tray.full")
                 }
@@ -156,28 +148,6 @@ struct SharedMainToolbarContent: ToolbarContent {
         viewModel.isCreatingSAM3Masks ? "Unavailable while SAM3 masks are being created" : nil
     }
 
-    private var sam3ToolbarButtonLabel: some View {
-        Label("SAM3", systemImage: "sparkles.rectangle.stack")
-    }
-
-    private var sam3ToolbarHelp: String {
-        if viewModel.isCreatingSAM3Masks {
-            return "SAM3 mask creation is already running"
-        }
-        let targetFiles = viewModel.sam3MaskCreationTargetFiles
-        if targetFiles.isEmpty {
-            return "Select thumbnails or choose a 2-5 star rating filter to create SAM3 masks"
-        }
-        return "Create SAM3 subject masks for \(viewModel.sam3MaskCreationTargetDescription)"
-    }
-
-    private var sam3ToolbarIsDisabled: Bool {
-        if viewModel.isCreatingSAM3Masks { return true }
-        return viewModel.selectedSource == nil ||
-            viewModel.sam3MaskCreationTargetFiles.isEmpty ||
-            viewModel.creatingthumbnails
-    }
-
     private func openCopyView() {
         viewModel.sheetType = .copytasksview
         viewModel.showcopyARWFilesView = true
@@ -185,11 +155,6 @@ struct SharedMainToolbarContent: ToolbarContent {
 
     private func toggleshowsavedfiles() {
         viewModel.showSavedFiles.toggle()
-    }
-
-    private func toggleSAM3MaskCreation() {
-        guard !viewModel.isCreatingSAM3Masks else { return }
-        viewModel.requestCreateSAM3MasksConfirmation()
     }
 
     private func selectGridMode() {
