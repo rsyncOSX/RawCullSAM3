@@ -527,6 +527,7 @@ final class SimilarityScoringModel {
 
     func applyCachedBurstAnalysis(_ snapshot: BurstAnalysisCacheSnapshot) {
         embeddings = snapshot.embeddings
+        embeddingBackend = snapshot.similarityGroupingSignature.embeddingBackend
         clipLabels = [:]
         clipLabelConfidences = [:]
         refreshEmbeddingBackendCounts()

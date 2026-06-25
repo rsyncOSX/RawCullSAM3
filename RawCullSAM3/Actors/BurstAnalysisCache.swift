@@ -7,6 +7,7 @@ struct BurstAnalysisCacheSnapshot: Codable, Equatable {
     var catalogPath: String
     var thumbnailMaxPixelSize: Int
     var sharpnessSignature: BurstSharpnessSignature
+    var similarityGroupingSignature: BurstSimilarityGroupingSignature
     var files: [BurstAnalysisCacheFile]
     var embeddings: [UUID: Data]
     var sharpnessScores: [UUID: Float]
@@ -15,6 +16,13 @@ struct BurstAnalysisCacheSnapshot: Codable, Equatable {
     var boundaryEvidence: [BurstBoundaryEvidence]
     var results: [BurstAnalysisResult]
     var reviewStateSnapshots: [BurstReviewStateSnapshot]
+}
+
+nonisolated struct BurstSimilarityGroupingSignature: Codable, Equatable {
+    var embeddingBackend: SimilarityEmbeddingBackend
+    var embeddingEnvelopeVersion: Int
+    var clipModelIdentifier: String?
+    var groupingConfig: BurstGroupingConfig
 }
 
 struct SharpnessScoringSignature: Codable {
@@ -99,7 +107,7 @@ struct BurstAnalysisCacheFile: Codable, Equatable {
 
 actor BurstAnalysisCache {
     static let shared = BurstAnalysisCache()
-    nonisolated static let schemaVersion = 3
+    nonisolated static let schemaVersion = 4
 
     private let cacheDirectory: URL
 
@@ -120,6 +128,7 @@ actor BurstAnalysisCache {
         files: [FileItem],
         thumbnailMaxPixelSize: Int,
         sharpnessSignature: BurstSharpnessSignature,
+        similarityGroupingSignature: BurstSimilarityGroupingSignature,
     ) async -> BurstAnalysisCacheSnapshot? {
         let url = cacheURL(for: catalog)
         guard FileManager.default.fileExists(atPath: url.path) else { return nil }
@@ -134,6 +143,7 @@ actor BurstAnalysisCache {
                 files: files,
                 thumbnailMaxPixelSize: thumbnailMaxPixelSize,
                 sharpnessSignature: sharpnessSignature,
+                similarityGroupingSignature: similarityGroupingSignature,
             ) else {
                 return nil
             }
@@ -171,12 +181,14 @@ actor BurstAnalysisCache {
         files: [FileItem],
         thumbnailMaxPixelSize: Int,
         sharpnessSignature: BurstSharpnessSignature,
+        similarityGroupingSignature: BurstSimilarityGroupingSignature,
     ) -> Bool {
         guard snapshot.schemaVersion == Self.schemaVersion,
               snapshot.algorithmVersion == BurstGroupingConfig.algorithmVersion,
               snapshot.catalogPath == catalog.path,
               snapshot.thumbnailMaxPixelSize == thumbnailMaxPixelSize,
               snapshot.sharpnessSignature == sharpnessSignature,
+              snapshot.similarityGroupingSignature == similarityGroupingSignature,
               snapshot.files.count == files.count
         else { return false }
 

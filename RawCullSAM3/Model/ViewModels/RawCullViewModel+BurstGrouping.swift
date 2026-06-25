@@ -159,12 +159,22 @@ extension RawCullViewModel {
             }
         }
 
+        await SettingsViewModel.shared.ensureLoaded()
+        guard isCurrentBurstAnalysis(generation: generation, catalog: catalog) else { return }
+        let preferredEmbeddingBackend = SimilarityScoringModel.preferredEmbeddingBackend(
+            useCLIPForSimilarity: SettingsViewModel.shared.useCLIPForSimilarity,
+        )
+        let similarityGroupingSignature = currentBurstSimilarityGroupingSignature(
+            embeddingBackend: preferredEmbeddingBackend,
+        )
+
         burstAnalysisProgress = BurstAnalysisProgress(step: .loadingCache)
         if let snapshot = await burstAnalysisCache.load(
             catalog: catalog,
             files: sorted,
             thumbnailMaxPixelSize: sharpnessModel.effectiveThumbnailMaxPixelSize,
             sharpnessSignature: currentBurstSharpnessSignature,
+            similarityGroupingSignature: similarityGroupingSignature,
         ) {
             guard isCurrentBurstAnalysis(generation: generation, catalog: catalog) else { return }
             applyCachedBurstAnalysis(remapCachedSnapshot(snapshot, to: sorted), files: sorted)
@@ -183,11 +193,6 @@ extension RawCullViewModel {
         }
 
         guard isCurrentBurstAnalysis(generation: generation, catalog: catalog) else { return }
-        await SettingsViewModel.shared.ensureLoaded()
-        guard isCurrentBurstAnalysis(generation: generation, catalog: catalog) else { return }
-        let preferredEmbeddingBackend = SimilarityScoringModel.preferredEmbeddingBackend(
-            useCLIPForSimilarity: SettingsViewModel.shared.useCLIPForSimilarity,
-        )
         if !similarityModel.hasCurrentEmbeddings(for: sorted, backend: preferredEmbeddingBackend) {
             burstAnalysisProgress = BurstAnalysisProgress(
                 step: .indexingSimilarity,
@@ -1032,6 +1037,9 @@ extension RawCullViewModel {
             catalogPath: catalog.path,
             thumbnailMaxPixelSize: sharpnessModel.effectiveThumbnailMaxPixelSize,
             sharpnessSignature: currentBurstSharpnessSignature,
+            similarityGroupingSignature: currentBurstSimilarityGroupingSignature(
+                embeddingBackend: similarityModel.embeddingBackend,
+            ),
             files: files.map {
                 BurstAnalysisCacheFile(
                     id: $0.id,
@@ -1158,6 +1166,7 @@ extension RawCullViewModel {
             catalogPath: snapshot.catalogPath,
             thumbnailMaxPixelSize: snapshot.thumbnailMaxPixelSize,
             sharpnessSignature: snapshot.sharpnessSignature,
+            similarityGroupingSignature: snapshot.similarityGroupingSignature,
             files: currentFiles.map {
                 BurstAnalysisCacheFile(id: $0.id, path: $0.url.path, size: $0.size, modificationDate: $0.dateModified)
             },
@@ -1182,5 +1191,19 @@ extension RawCullViewModel {
 
     private var currentBurstSharpnessSignature: BurstSharpnessSignature {
         sharpnessModel.scoringSignature
+    }
+
+    private func currentBurstSimilarityGroupingSignature(
+        embeddingBackend: SimilarityEmbeddingBackend,
+    ) -> BurstSimilarityGroupingSignature {
+        let modelURL = embeddingBackend == .clip ? CLIPModelResourceManager.installedModelURL() : nil
+        return BurstSimilarityGroupingSignature(
+            embeddingBackend: embeddingBackend,
+            embeddingEnvelopeVersion: SimilarityEmbeddingEnvelope.currentVersion,
+            clipModelIdentifier: CLIPModelResourceManager.cacheIdentifier(for: modelURL),
+            groupingConfig: BurstGroupingConfig(
+                visualDistanceThreshold: similarityModel.burstSensitivity,
+            ),
+        )
     }
 }

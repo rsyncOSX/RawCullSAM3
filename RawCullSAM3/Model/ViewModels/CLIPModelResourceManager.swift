@@ -65,6 +65,35 @@ nonisolated struct CLIPModelResourceManager {
         Self().validateModelBundle(at: url)
     }
 
+    static func cacheIdentifier(for modelURL: URL?) -> String? {
+        guard let modelURL else { return nil }
+        let metadataURL = modelURL.appendingPathComponent("metadata.json")
+        guard let metadataData = try? Data(contentsOf: metadataURL),
+              let object = try? JSONSerialization.jsonObject(with: metadataData) as? [String: Any]
+        else {
+            return modelURL.standardizedFileURL.path
+        }
+
+        let name = object["name"] as? String ?? ""
+        let sourceModel = object["source_model"] as? String ?? ""
+        let metadataVersion = object["metadata_version"] as? String ?? ""
+        let assets = object["assets"] as? [String: String]
+        let mainAsset = assets?["main"] ?? ""
+        let assetURL = modelURL.appendingPathComponent(mainAsset)
+        let attributes = try? FileManager.default.attributesOfItem(atPath: assetURL.path)
+        let assetSize = attributes?[.size] as? NSNumber
+        let assetModified = attributes?[.modificationDate] as? Date
+
+        return [
+            name,
+            sourceModel,
+            metadataVersion,
+            mainAsset,
+            assetSize?.stringValue ?? "",
+            assetModified.map { String($0.timeIntervalSince1970) } ?? "",
+        ].joined(separator: "|")
+    }
+
     func installedModelURL() -> URL? {
         modelStatus().modelURL
     }

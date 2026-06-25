@@ -647,6 +647,12 @@ private func makeBurstSnapshot(
             thumbnailMaxPixelSize: 512,
             config: FocusDetectorConfig(),
         ),
+        similarityGroupingSignature: BurstSimilarityGroupingSignature(
+            embeddingBackend: .visionFeaturePrint,
+            embeddingEnvelopeVersion: SimilarityEmbeddingEnvelope.currentVersion,
+            clipModelIdentifier: nil,
+            groupingConfig: BurstGroupingConfig(),
+        ),
         files: files.map {
             BurstAnalysisCacheFile(
                 id: $0.id,
