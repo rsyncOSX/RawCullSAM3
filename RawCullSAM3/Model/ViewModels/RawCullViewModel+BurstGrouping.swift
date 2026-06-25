@@ -698,7 +698,7 @@ extension RawCullViewModel {
     private func recomputeBurstRankings(files: [FileItem]) {
         let filesByID = Dictionary(uniqueKeysWithValues: files.map { ($0.id, $0) })
         let results = BurstRankingEngine.rank(
-            groups: similarityModel.burstGroups,
+            groups: similarityModel.burstGroups.filter { $0.fileIDs.count >= 2 },
             filesByID: filesByID,
             scores: sharpnessModel.scores,
             maxScore: sharpnessModel.maxScore,
