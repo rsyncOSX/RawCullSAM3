@@ -101,6 +101,29 @@ struct SimilarityEmbeddingBackendTests {
     }
 
     @Test
+    func `one non CLIP result downgrades the whole indexing pass`() throws {
+        let clipID = UUID()
+        let visionID = UUID()
+        let clipData = try #require(SimilarityEmbeddingEnvelope.encodeCLIP([1, 0]))
+        let visionData = Data("vision-placeholder".utf8)
+        let results = [
+            clipID: SimilarityIndexResult(embeddingData: clipData, clipLabel: nil, clipConfidence: nil),
+            visionID: SimilarityIndexResult(embeddingData: visionData, clipLabel: nil, clipConfidence: nil),
+        ]
+
+        #expect(SimilarityScoringModel.requiresVisionFallback(
+            preferredBackend: .clip,
+            expectedCount: 2,
+            results: results,
+        ))
+        #expect(!SimilarityScoringModel.requiresVisionFallback(
+            preferredBackend: .visionFeaturePrint,
+            expectedCount: 2,
+            results: results,
+        ))
+    }
+
+    @Test
     func `burst grouping cache invalidates when embedding payload changes`() async throws {
         let files = [
             makeSimilarityTestFile("one.ARW", seconds: 0),

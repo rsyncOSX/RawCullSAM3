@@ -1031,6 +1031,9 @@ extension RawCullViewModel {
     }
 
     private func saveBurstAnalysisCache(catalog: URL, files: [FileItem]) async {
+        let preferredBackend = SimilarityScoringModel.preferredEmbeddingBackend(
+            useCLIPForSimilarity: SettingsViewModel.shared.useCLIPForSimilarity,
+        )
         let snapshot = BurstAnalysisCacheSnapshot(
             schemaVersion: BurstAnalysisCache.schemaVersion,
             algorithmVersion: BurstGroupingConfig.algorithmVersion,
@@ -1038,7 +1041,7 @@ extension RawCullViewModel {
             thumbnailMaxPixelSize: sharpnessModel.effectiveThumbnailMaxPixelSize,
             sharpnessSignature: currentBurstSharpnessSignature,
             similarityGroupingSignature: currentBurstSimilarityGroupingSignature(
-                embeddingBackend: similarityModel.embeddingBackend,
+                embeddingBackend: preferredBackend,
             ),
             files: files.map {
                 BurstAnalysisCacheFile(

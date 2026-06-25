@@ -142,6 +142,7 @@ final class SimilarityScoringModel {
 
     /// Backend selected for the latest indexing pass.
     var embeddingBackend: SimilarityEmbeddingBackend = .visionFeaturePrint
+    var didFallbackFromCLIP = false
 
     var usesCLIPEmbeddings: Bool {
         embeddingBackend == .clip
@@ -214,6 +215,7 @@ final class SimilarityScoringModel {
         anchorFileID = nil
         sortBySimilarity = false
         embeddingBackend = .visionFeaturePrint
+        didFallbackFromCLIP = false
         burstGroups = []
         burstGroupLookup = [:]
         burstBoundaryEvidence = []
@@ -237,10 +239,15 @@ final class SimilarityScoringModel {
         for files: [FileItem],
         backend: SimilarityEmbeddingBackend,
     ) -> Bool {
-        Self.hasCurrentEmbeddings(
+        let effectiveBackend: SimilarityEmbeddingBackend = if backend == .clip, didFallbackFromCLIP {
+            .visionFeaturePrint
+        } else {
+            backend
+        }
+        return Self.hasCurrentEmbeddings(
             files: files,
             embeddings: embeddings,
-            backend: backend,
+            backend: effectiveBackend,
         )
     }
 
@@ -262,6 +269,7 @@ final class SimilarityScoringModel {
             useCLIPForSimilarity: SettingsViewModel.shared.useCLIPForSimilarity,
         )
         embeddingBackend = preferredBackend
+        didFallbackFromCLIP = false
         let clipProvider = preferredBackend == .clip ? CoreAICLIPProvider() : nil
         Logger.process.info("SimilarityScoringModel: indexing similarity with \(preferredBackend.displayName) backend")
 
@@ -343,6 +351,58 @@ final class SimilarityScoringModel {
                 }
 
                 guard !Task.isCancelled else { return }
+                let requiresVisionFallback = Self.requiresVisionFallback(
+                    preferredBackend: preferredBackend,
+                    expectedCount: toIndex.count,
+                    results: localResults,
+                )
+
+                if requiresVisionFallback {
+                    Logger.process.warning(
+                        "SimilarityScoringModel: CLIP indexing was incomplete; recomputing the entire analysis scope with Vision embeddings",
+                    )
+                    localResults = [:]
+                    self.indexingProgress = 0
+                    self.indexingTotal = files.count
+
+                    await withTaskGroup(of: (UUID, SimilarityIndexResult?).self) { fallbackGroup in
+                        for file in files {
+                            let url = file.url
+                            let id = file.id
+                            fallbackGroup.addTask(priority: .userInitiated) {
+                                let result = await Self.computeEmbedding(
+                                    url: url,
+                                    maxPixelSize: thumbSize,
+                                    preferredBackend: .visionFeaturePrint,
+                                )
+                                return (id, result)
+                            }
+                        }
+
+                        var fallbackCompleted = 0
+                        for await (id, result) in fallbackGroup {
+                            guard !Task.isCancelled else {
+                                fallbackGroup.cancelAll()
+                                return
+                            }
+                            if let result {
+                                localResults[id] = result
+                            }
+                            fallbackCompleted += 1
+                            self.indexingProgress = fallbackCompleted
+                        }
+                    }
+                    guard !Task.isCancelled else { return }
+
+                    for file in files {
+                        self.embeddings[file.id] = nil
+                        self.clipLabels[file.id] = nil
+                        self.clipLabelConfidences[file.id] = nil
+                    }
+                    self.embeddingBackend = .visionFeaturePrint
+                    self.didFallbackFromCLIP = true
+                }
+
                 // Merge newly computed embeddings with any pre-existing ones.
                 for (id, result) in localResults {
                     self.embeddings[id] = result.embeddingData
@@ -359,7 +419,7 @@ final class SimilarityScoringModel {
                 }
                 self.refreshEmbeddingBackendCounts()
                 Logger.process.info(
-                    "SimilarityScoringModel: indexed \(localResults.count)/\(toIndex.count) files using \(preferredBackend.displayName); stored \(self.clipEmbeddingCount) CLIP and \(self.visionEmbeddingCount) Vision embeddings",
+                    "SimilarityScoringModel: indexed \(localResults.count) files; stored \(self.clipEmbeddingCount) CLIP and \(self.visionEmbeddingCount) Vision embeddings",
                 )
             }
         }
@@ -531,6 +591,11 @@ final class SimilarityScoringModel {
         clipLabels = [:]
         clipLabelConfidences = [:]
         refreshEmbeddingBackendCounts()
+        if clipEmbeddingCount == 0, visionEmbeddingCount > 0 {
+            embeddingBackend = .visionFeaturePrint
+        }
+        didFallbackFromCLIP = snapshot.similarityGroupingSignature.embeddingBackend == .clip &&
+            embeddingBackend == .visionFeaturePrint
         burstGroups = snapshot.groups
         burstBoundaryEvidence = snapshot.boundaryEvidence
         burstGroupLookup = Dictionary(uniqueKeysWithValues: snapshot.groups.flatMap { group in
@@ -662,6 +727,17 @@ final class SimilarityScoringModel {
             guard let data = embeddings[file.id] else { return false }
             return embeddingBackend(for: data) == backend
         }
+    }
+
+    nonisolated static func requiresVisionFallback(
+        preferredBackend: SimilarityEmbeddingBackend,
+        expectedCount: Int,
+        results: [UUID: SimilarityIndexResult],
+    ) -> Bool {
+        preferredBackend == .clip &&
+            (results.count != expectedCount || results.values.contains {
+                embeddingBackend(for: $0.embeddingData) != .clip
+            })
     }
 
     nonisolated static func distance(from lhs: DecodedSimilarityEmbedding, to rhs: DecodedSimilarityEmbedding) -> Float? {
