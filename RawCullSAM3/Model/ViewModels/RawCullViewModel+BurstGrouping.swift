@@ -256,6 +256,7 @@ extension RawCullViewModel {
             catalog: catalog,
         )
         recomputeBurstRankings(files: sorted)
+        pruneStaleDeepAIReviewResults()
     }
 
     // MARK: - User actions
@@ -270,11 +271,18 @@ extension RawCullViewModel {
     }
 
     func presentDeepAIReview(groupID: Int) {
+        if let result = deepAIReviewModel.results[groupID],
+           result.groupSignature != currentBurstGroupSignature(groupID: groupID) {
+            deepAIReviewModel.results[groupID] = nil
+        }
         deepAIReviewModel.presentedGroupID = groupID
     }
 
     func deepAIReviewResult(for groupID: Int) -> DeepAIReviewResult? {
-        deepAIReviewModel.result(for: groupID)
+        guard let result = deepAIReviewModel.result(for: groupID),
+              result.groupSignature == currentBurstGroupSignature(groupID: groupID)
+        else { return nil }
+        return result
     }
 
     func runDeepAIReview(for groupFiles: [FileItem]) async {
@@ -501,10 +509,12 @@ extension RawCullViewModel {
         applyManualWinnerOverrides(files: burstAnalysisTargetFiles)
     }
 
-    func markDeepAIReviewWinner(_ winnerID: FileItem.ID?, in groupFiles: [FileItem]) {
+    func markDeepAIReviewWinner(_ result: DeepAIReviewResult?, in groupFiles: [FileItem]) {
         guard let selectedSource,
               !isCreatingSAM3Masks,
-              let winner = winnerID.flatMap({ id in groupFiles.first { $0.id == id } })
+              let result,
+              result.groupSignature == BurstGroupSignature(files: groupFiles, catalog: selectedSource.url),
+              let winner = result.recommendedFileID.flatMap({ id in groupFiles.first { $0.id == id } })
         else { return }
 
         let override = BurstWinnerOverride(
@@ -712,6 +722,24 @@ extension RawCullViewModel {
 
     private func groupID(for groupFiles: [FileItem]) -> Int {
         groupFiles.lazy.compactMap { self.similarityModel.burstGroupLookup[$0.id] }.first ?? -1
+    }
+
+    private func currentBurstGroupSignature(groupID: Int) -> BurstGroupSignature? {
+        guard let catalog = selectedSource?.url,
+              let group = similarityModel.burstGroups.first(where: { $0.id == groupID })
+        else { return nil }
+        let filesByID = Dictionary(uniqueKeysWithValues: files.map { ($0.id, $0) })
+        return burstSignature(for: group, filesByID: filesByID, catalog: catalog)
+    }
+
+    private func pruneStaleDeepAIReviewResults() {
+        deepAIReviewModel.results = deepAIReviewModel.results.filter { groupID, result in
+            result.groupSignature == currentBurstGroupSignature(groupID: groupID)
+        }
+        if let presented = deepAIReviewModel.presentedGroupID,
+           deepAIReviewModel.results[presented] == nil {
+            deepAIReviewModel.presentedGroupID = nil
+        }
     }
 
     private func canApplyOneClickCulling(groupID: Int) -> Bool {

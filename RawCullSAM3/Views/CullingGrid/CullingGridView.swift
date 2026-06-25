@@ -541,6 +541,7 @@ struct CullingGridView<Header: View>: View {
         .sheet(isPresented: deepReviewSheetBinding) {
             DeepAIReviewSheetView(
                 model: viewModel.deepAIReviewModel,
+                result: presentedDeepReviewResult,
                 files: filesForPresentedDeepReview,
                 onRun: { groupFiles in
                     Task { await viewModel.runDeepAIReview(for: groupFiles) }
@@ -703,12 +704,17 @@ struct CullingGridView<Header: View>: View {
         return visibleBurstGroups.first { $0.id == groupID }?.files ?? []
     }
 
+    private var presentedDeepReviewResult: DeepAIReviewResult? {
+        guard let groupID = viewModel.deepAIReviewModel.presentedGroupID else { return nil }
+        return viewModel.deepAIReviewResult(for: groupID)
+    }
+
     private func closeDeepReviewSheet() {
         guard let groupID = viewModel.deepAIReviewModel.presentedGroupID else { return }
         let groupFiles = visibleBurstGroups.first { $0.id == groupID }?.files ?? []
-        let result = viewModel.deepAIReviewModel.result(for: groupID)
+        let result = viewModel.deepAIReviewResult(for: groupID)
         if !groupFiles.isEmpty, !viewModel.deepAIReviewModel.isRunning {
-            viewModel.markDeepAIReviewWinner(result?.recommendedFileID, in: groupFiles)
+            viewModel.markDeepAIReviewWinner(result, in: groupFiles)
         }
         viewModel.deepAIReviewModel.presentedGroupID = nil
     }
@@ -820,13 +826,10 @@ struct CullingGridView<Header: View>: View {
 
 private struct DeepAIReviewSheetView: View {
     @Bindable var model: DeepAIReviewModel
+    let result: DeepAIReviewResult?
     let files: [FileItem]
     let onRun: ([FileItem]) -> Void
     let onClose: () -> Void
-
-    private var result: DeepAIReviewResult? {
-        model.presentedGroupID.flatMap { model.result(for: $0) }
-    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
