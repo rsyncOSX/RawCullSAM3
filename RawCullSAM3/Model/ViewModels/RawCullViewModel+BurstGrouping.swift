@@ -1021,10 +1021,16 @@ extension RawCullViewModel {
     }
 
     private func persistBurstReviewStates() {
-        guard let catalog = selectedSource?.url else { return }
-        let currentFiles = burstAnalysisTargetFiles
+        guard let catalog = selectedSource?.url,
+              burstAnalysisScopeCatalog == catalog,
+              !burstAnalysisScopeFiles.isEmpty
+        else { return }
+        let snapshot = makeBurstAnalysisCacheSnapshot(
+            catalog: catalog,
+            files: burstAnalysisScopeFiles,
+        )
         Task {
-            await saveBurstAnalysisCache(catalog: catalog, files: currentFiles)
+            await burstAnalysisCache.save(snapshot, catalog: catalog)
         }
     }
 
@@ -1062,10 +1068,18 @@ extension RawCullViewModel {
     }
 
     private func saveBurstAnalysisCache(catalog: URL, files: [FileItem]) async {
+        let snapshot = makeBurstAnalysisCacheSnapshot(catalog: catalog, files: files)
+        await burstAnalysisCache.save(snapshot, catalog: catalog)
+    }
+
+    private func makeBurstAnalysisCacheSnapshot(
+        catalog: URL,
+        files: [FileItem],
+    ) -> BurstAnalysisCacheSnapshot {
         let preferredBackend = SimilarityScoringModel.preferredEmbeddingBackend(
             useCLIPForSimilarity: SettingsViewModel.shared.useCLIPForSimilarity,
         )
-        let snapshot = BurstAnalysisCacheSnapshot(
+        return BurstAnalysisCacheSnapshot(
             schemaVersion: BurstAnalysisCache.schemaVersion,
             algorithmVersion: BurstGroupingConfig.algorithmVersion,
             catalogPath: catalog.path,
@@ -1090,7 +1104,6 @@ extension RawCullViewModel {
             results: Array(burstAnalysisResults.values).sorted { $0.groupID < $1.groupID },
             reviewStateSnapshots: reviewStateSnapshots(catalog: catalog, files: files),
         )
-        await burstAnalysisCache.save(snapshot, catalog: catalog)
     }
 
     func cachedReviewStates(from snapshot: BurstAnalysisCacheSnapshot, files currentFiles: [FileItem]? = nil) -> [Int: BurstReviewState] {
