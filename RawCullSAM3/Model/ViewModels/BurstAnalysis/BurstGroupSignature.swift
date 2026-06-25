@@ -1,7 +1,7 @@
 import Foundation
 import RawCullCore
 
-struct BurstGroupSignature: Codable, Hashable {
+nonisolated struct BurstGroupSignature: Codable, Hashable {
     let memberKeys: [String]
 
     init(memberKeys: [String]) {

@@ -1,7 +1,7 @@
 import Foundation
 import RawCullCore
 
-struct BurstAnalysisCacheSnapshot: Codable, Equatable {
+nonisolated struct BurstAnalysisCacheSnapshot: Codable, Equatable {
     var schemaVersion: Int
     var algorithmVersion: Int
     var catalogPath: String
@@ -25,7 +25,7 @@ nonisolated struct BurstSimilarityGroupingSignature: Codable, Equatable {
     var groupingConfig: BurstGroupingConfig
 }
 
-struct SharpnessScoringSignature: Codable {
+nonisolated struct SharpnessScoringSignature: Codable {
     nonisolated static let currentAlgorithmVersion = 4
     nonisolated static let currentISOScalingPolicyVersion = 1
     nonisolated static let currentApertureHintPolicyVersion = 1
@@ -98,7 +98,7 @@ extension SharpnessScoringSignature: Equatable {
 
 typealias BurstSharpnessSignature = SharpnessScoringSignature
 
-struct BurstAnalysisCacheFile: Codable, Equatable {
+nonisolated struct BurstAnalysisCacheFile: Codable, Equatable {
     var id: UUID
     var path: String
     var size: Int64
@@ -134,9 +134,7 @@ actor BurstAnalysisCache {
         guard FileManager.default.fileExists(atPath: url.path) else { return nil }
         do {
             let data = try Data(contentsOf: url)
-            let snapshot = try await MainActor.run {
-                try JSONDecoder().decode(BurstAnalysisCacheSnapshot.self, from: data)
-            }
+            let snapshot = try JSONDecoder().decode(BurstAnalysisCacheSnapshot.self, from: data)
             guard isValid(
                 snapshot,
                 catalog: catalog,
@@ -156,9 +154,7 @@ actor BurstAnalysisCache {
     func save(_ snapshot: BurstAnalysisCacheSnapshot, catalog: URL) async {
         do {
             try FileManager.default.createDirectory(at: cacheDirectory, withIntermediateDirectories: true)
-            let data = try await MainActor.run {
-                try JSONEncoder().encode(snapshot)
-            }
+            let data = try JSONEncoder().encode(snapshot)
             try data.write(to: cacheURL(for: catalog), options: [.atomic])
         } catch {
             return
