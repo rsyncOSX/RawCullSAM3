@@ -25,6 +25,9 @@ private func makeMaskImage(
     ))
     ctx.clear(CGRect(x: 0, y: 0, width: width, height: height))
     if let rect = maskRect {
+        // Make fixture coordinates match image coordinates, whose origin is top-left.
+        ctx.translateBy(x: 0, y: CGFloat(height))
+        ctx.scaleBy(x: 1, y: -1)
         ctx.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
         ctx.fill(rect)
     }

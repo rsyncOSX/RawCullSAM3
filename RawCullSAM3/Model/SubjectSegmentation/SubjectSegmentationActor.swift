@@ -202,6 +202,7 @@ actor SubjectSegmentationActor {
             }
 
             guard let image = await imageLoader(file) else {
+                try Task.checkCancellation()
                 failed += 1
                 completed += 1
                 await progress?(SubjectMaskPrefetchProgress(
@@ -215,6 +216,7 @@ actor SubjectSegmentationActor {
                 continue
             }
 
+            try Task.checkCancellation()
             do {
                 _ = try await segment(image: image, fileID: file.id, fileURL: file.url, prompt: prompt)
                 generated += 1

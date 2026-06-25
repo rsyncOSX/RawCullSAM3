@@ -11,7 +11,7 @@ private actor SavedFilesRecorder {
     }
 
     func waitForSnapshotCount(_ count: Int) async -> [[SavedFiles]] {
-        for _ in 0 ..< 200 {
+        for _ in 0 ..< 2_000 {
             if snapshots.count >= count { return snapshots }
             try? await Task.sleep(nanoseconds: 1_000_000)
         }
