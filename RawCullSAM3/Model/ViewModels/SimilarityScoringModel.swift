@@ -628,38 +628,42 @@ final class SimilarityScoringModel {
         preferredBackend: SimilarityEmbeddingBackend = preferredEmbeddingBackend(),
         clipProvider: CoreAICLIPProvider? = nil,
     ) async -> SimilarityIndexResult? {
-        await Task.detached(priority: .userInitiated) {
-            guard let cgImage = await decodeRawParserKitThumbnail(at: url, maxPixelSize: maxPixelSize)
-                ?? decodeThumbnail(at: url, maxPixelSize: maxPixelSize)
-            else {
-                Logger.process.debugMessageOnly("SimilarityScoringModel: could not decode image at \(url.lastPathComponent)")
-                return nil
-            }
+        guard !Task.isCancelled else { return nil }
+        guard let cgImage = await decodeRawParserKitThumbnail(at: url, maxPixelSize: maxPixelSize)
+            ?? decodeThumbnail(at: url, maxPixelSize: maxPixelSize)
+        else {
+            Logger.process.debugMessageOnly("SimilarityScoringModel: could not decode image at \(url.lastPathComponent)")
+            return nil
+        }
+        guard !Task.isCancelled else { return nil }
 
-            if preferredBackend == .clip, let clipProvider {
-                do {
-                    let analysis = try await clipProvider.imageAnalysis(for: cgImage)
-                    if let data = SimilarityEmbeddingEnvelope.encodeCLIP(analysis.embedding) {
-                        return SimilarityIndexResult(
-                            embeddingData: data,
-                            clipLabel: analysis.label,
-                            clipConfidence: analysis.confidence,
-                        )
-                    }
-                } catch {
-                    Logger.process.warning("SimilarityScoringModel: CLIP embedding failed for \(url.lastPathComponent), falling back to Vision: \(String(describing: error))")
+        if preferredBackend == .clip, let clipProvider {
+            do {
+                let analysis = try await clipProvider.imageAnalysis(for: cgImage)
+                guard !Task.isCancelled else { return nil }
+                if let data = SimilarityEmbeddingEnvelope.encodeCLIP(analysis.embedding) {
+                    return SimilarityIndexResult(
+                        embeddingData: data,
+                        clipLabel: analysis.label,
+                        clipConfidence: analysis.confidence,
+                    )
                 }
-            }
-
-            guard let data = visionFeaturePrintEmbedding(for: cgImage, fileName: url.lastPathComponent) else {
+            } catch is CancellationError {
                 return nil
+            } catch {
+                Logger.process.warning("SimilarityScoringModel: CLIP embedding failed for \(url.lastPathComponent), falling back to Vision: \(String(describing: error))")
             }
-            return SimilarityIndexResult(
-                embeddingData: data,
-                clipLabel: nil,
-                clipConfidence: nil,
-            )
-        }.value
+        }
+
+        guard !Task.isCancelled,
+              let data = visionFeaturePrintEmbedding(for: cgImage, fileName: url.lastPathComponent),
+              !Task.isCancelled
+        else { return nil }
+        return SimilarityIndexResult(
+            embeddingData: data,
+            clipLabel: nil,
+            clipConfidence: nil,
+        )
     }
 
     nonisolated static func computeAdjacentDistances(
