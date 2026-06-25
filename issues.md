@@ -267,3 +267,262 @@ Add tests for:
 - deep-result signature mismatch after regrouping/catalog change
 - complete render-cache invalidation when middle members or score values change
 - persistence after changing selection/rating filter following analysis
+
+## Implementation plan
+
+### Guiding design
+
+Introduce a catalog-scoped analysis context and make it the authority for every
+burst-analysis and deep-review state write:
+
+- `catalogURL`: standardized URL for the catalog that started the work
+- `generation`: a new token for each analysis/reset
+- `files`: the immutable file scope used by the completed analysis
+- `fileSignature`: deterministic identity for that scope
+
+An async operation may commit results only when both its catalog URL and
+generation still match the active context. Integer burst group IDs remain
+presentation-local identifiers; persisted review and deep-review identity must
+use `BurstGroupSignature`.
+
+Implement the work in the phases below. Each phase should land with its tests
+passing before starting the next phase.
+
+### Phase 1 — Own and cancel catalog-scoped work (findings 1, 2, and 9)
+
+1. Add ignored task handles and a generation token to `RawCullViewModel`:
+   `burstAnalysisTask`, `deepAIReviewTask`, and `burstAnalysisGeneration`.
+   Keep the immutable completed-analysis context alongside them.
+2. Split `analyzeBursts()` into:
+   - a public method that cancels the previous task, advances the generation,
+     creates and stores the one task that owns the complete pipeline, and awaits
+     that task;
+   - a private pipeline method that receives the captured catalog, generation,
+     and file scope.
+3. Add a single `isCurrentBurstAnalysis(catalog:generation:)` guard and call it
+   after every suspension point and immediately before applying cache data,
+   rankings, progress, or cache writes.
+4. Use cancellation-safe cleanup so only the current generation can clear
+   `burstAnalysisTask` and return `burstAnalysisProgress` to idle.
+5. Add `resetCatalogScopedAnalysis()` and call it at the beginning of catalog
+   cancellation/switching. It must cancel both owned tasks and clear burst
+   progress/results/review state, comparison state, undo state, completed scope,
+   and all deep-review result/presentation/running state.
+6. Give deep review the same catalog/generation ownership model. Check the
+   captured context before each partial-result publication and final result.
+7. Remove the nested `Task.detached` from
+   `SimilarityScoringModel.computeEmbedding`. Run decode/inference directly in
+   the structured task-group child and add cancellation checks before decode,
+   before inference, and before returning a result.
+8. Ensure cancellation discards temporary indexing results rather than merging
+   a partially cancelled pass into `embeddings`.
+
+Acceptance criteria:
+
+- Reanalysis leaves at most one pipeline capable of writing state or cache.
+- Cancel/reindex and catalog switching always return progress to idle.
+- An old catalog cannot publish burst or deep-review state into a new catalog.
+- Cancelling similarity indexing stops child workers and does not merge late
+  embeddings.
+
+Tests:
+
+- Add controllable test hooks/fakes that suspend sharpness, embedding, deep
+  review, and cache save stages.
+- Cancel or switch catalogs while suspended, resume the old work, and assert no
+  progress, results, deep results, embeddings, or cache writes are published.
+- Start two analyses and assert only the newest generation commits.
+
+### Phase 2 — Define complete analysis and cache identity (findings 3, 11, and 12)
+
+1. Add a codable, equatable, sendable `BurstSimilarityGroupingSignature`
+   containing:
+   - selected embedding backend;
+   - CLIP model identifier/version when CLIP is selected;
+   - embedding envelope format version;
+   - grouping algorithm version;
+   - `visualDistanceThreshold`;
+   - every other grouping configuration value that can change boundaries.
+2. Store this signature in `BurstAnalysisCacheSnapshot`, require it in
+   `BurstAnalysisCache.load`, and increment `BurstAnalysisCache.schemaVersion`.
+   Compute the preferred backend and signature before attempting a cache load.
+3. On successful analysis or cache load, store a
+   `CompletedBurstAnalysisContext` containing the immutable catalog URL, files,
+   file signature, and analysis signature.
+4. Change review-state persistence to use the completed context instead of
+   `burstAnalysisTargetFiles`. Refuse to save if current groups/results do not
+   match that context.
+5. Move JSON encode/decode off `MainActor`. Mark cache DTOs `Sendable` where
+   valid and perform serialization in the cache actor or a cancellable
+   background worker.
+6. Avoid rebuilding a snapshot from mutable UI filters for review-only changes.
+   Add a cache-actor operation that updates review snapshots on the stored
+   completed snapshot, then atomically rewrites it.
+7. Coalesce rapid review-state saves so repeated clicks do not serialize the
+   full embedding payload for every intermediate state.
+
+Acceptance criteria:
+
+- Backend, CLIP model/envelope version, sensitivity, or grouping-config changes
+  invalidate the cache.
+- Selection, search, and rating-filter changes after analysis do not alter the
+  cache file manifest.
+- Cache serialization does not execute on the main actor.
+- Review updates preserve the original completed analysis scope.
+
+Tests:
+
+- Add cache round-trip and invalidation tests for each signature component.
+- Analyze a full scope, change selection/filter, persist review state, reload,
+  and assert the original manifest, groups, and restored review state remain
+  valid.
+- Add an executor/isolation assertion around cache encoding and decoding.
+
+### Phase 3 — Guarantee one comparable embedding backend per pass (finding 4)
+
+1. Make indexing transactional: compute results into a temporary pass result
+   and publish them only after the backend decision is final.
+2. For a CLIP pass, retry failed CLIP items according to a small bounded policy.
+   If any required item still fails, discard temporary CLIP results and compute
+   Vision embeddings for the entire requested analysis scope.
+3. Record the effective backend and degraded/fallback reason in the completed
+   analysis context and cache signature. Do not permit mixed-backend embeddings
+   in a grouping pass.
+4. Update UI status/logging to say that the pass fell back to Vision, rather
+   than reporting a structurally mixed index.
+5. Add an invariant check before grouping that all required files have
+   embeddings from one backend. If not, fail the pass visibly instead of
+   creating false boundaries.
+
+Acceptance criteria:
+
+- A single CLIP failure cannot split a burst because of incomparable adjacent
+  embeddings.
+- Completed grouping scopes contain only CLIP or only Vision embeddings.
+- A fallback pass is reusable and does not retry CLIP for individual files on
+  every analysis.
+
+Tests:
+
+- Inject a CLIP failure for the middle frame of a burst and assert the whole
+  scope falls back to Vision and remains one group.
+- Cover retry success, full fallback, cancellation during fallback, and failure
+  to produce a complete fallback index.
+
+### Phase 4 — Preserve stable burst and deep-review identity (findings 5 and 7)
+
+1. Before `reGroupBursts()`, snapshot all non-empty review states by
+   `BurstGroupSignature` using the completed analysis file lookup and catalog.
+2. After regrouping/reranking, rebuild `burstReviewStates` by matching the new
+   group signatures. Do not pass the old integer-keyed dictionary into ranking.
+3. Replace `DeepAIReviewModel.results: [Int: DeepAIReviewResult]` with storage
+   keyed by a catalog-aware `BurstGroupSignature` (or a key containing catalog
+   identity plus the signature). Keep group ID only as display metadata.
+4. Resolve a deep result for display by computing the current group's signature.
+   Remove or ignore results whose signature no longer matches.
+5. Before applying a deep-review winner, revalidate catalog, generation, group
+   signature, and winner membership.
+6. Change sheet dismissal so it never silently applies a stale result. Prefer an
+   explicit “Use recommendation” action; if automatic application is retained,
+   run the same validation and no-op on mismatch.
+
+Acceptance criteria:
+
+- Review states follow unchanged membership across group-ID renumbering.
+- Split, merged, or otherwise changed groups do not inherit unrelated states.
+- Deep results disappear when catalog or membership changes.
+- A stale sheet cannot apply a winner to a regrouped burst.
+
+Tests:
+
+- Renumber unchanged groups and verify state restoration by signature.
+- Split and merge groups and verify unmatched states are dropped.
+- Regroup or switch catalogs while a deep-review sheet is open and assert
+  display/application rejects the stale result.
+
+### Phase 5 — Align review queues and presets with real behavior (findings 6 and 8)
+
+1. Keep singleton groups if they are needed to render every photo in burst mode,
+   but define an analyzable/reviewable burst as a group with at least two files.
+2. Skip singleton groups in ranking, `burstAnalysisResults`, review queue
+   filters/counts, and deep-review entry points. Preserve their normal grid
+   rendering without burst review controls.
+3. Remove the `eyeDetail` preset from the selectable UI and persisted preset
+   model for this fix, migrating a previously saved value to `headFace`.
+   Implementing true eye localization can be tracked separately and the preset
+   reintroduced only when it uses an eye region and distinct scoring window.
+4. Update labels/help text and tests so no UI claims eye-specific analysis.
+
+Acceptance criteria:
+
+- Singleton photos never increase Needs Review, Deferred, or Reviewed counts.
+- Every item reachable from a burst review queue has review actions.
+- The application no longer presents head/face scoring as “Eye Detail.”
+
+Tests:
+
+- Cover catalogs containing only singletons and mixed singleton/multi-frame
+  groups.
+- Verify ranking and review counts exclude one-file groups.
+- Verify decoding/migration of a stored `eyeDetail` preset selects `headFace`.
+
+### Phase 6 — Make grid cache invalidation complete (finding 10)
+
+1. Replace the partial render-cache key with deterministic signatures of:
+   - every group ID and ordered member ID;
+   - the complete ordered visible file ID list;
+   - every score used by visible groups, including its file ID and value;
+   - `maxScore`;
+   - recommendation, manual-winner, and review-state fields used by rendering;
+   - rating and review filters.
+2. Prefer small version counters maintained by the owning models if profiling
+   shows full hashing is expensive, but increment them only on relevant value
+   changes—not merely count changes.
+3. Keep cache rebuilding pure so key-equality tests can directly prove whether a
+   render update is required.
+
+Acceptance criteria:
+
+- Changing a middle group member or middle visible file invalidates the cache.
+- Changing a score value or `maxScore` updates best-frame names/percentages.
+- Unchanged render inputs retain the existing cache.
+
+Tests:
+
+- Add focused key/rebuild tests for member replacement with equal counts,
+  visible-file replacement with equal first/last IDs, score changes with equal
+  score counts, `maxScore` changes, and manual-winner changes.
+
+### Phase 7 — Integration verification and closeout
+
+1. Run the targeted burst, similarity, sharpness, grid, cache, catalog lifecycle,
+   and security-scope test suites after each phase.
+2. Add one end-to-end regression scenario:
+   analyze catalog A, change sensitivity, start deep review, switch to catalog B,
+   wait for all old workers to finish, and verify B contains no state or cache
+   artifacts from A.
+3. Run the full Debug build and project test plan. Run Thread Sanitizer for the
+   lifecycle/cancellation tests if the test target supports it.
+4. Manually verify:
+   - Analyze, Cancel, Reindex, and rapid sensitivity changes;
+   - switching catalogs during each pipeline stage;
+   - CLIP success and forced Vision fallback;
+   - review-state persistence after selection/filter changes;
+   - singleton-heavy catalogs;
+   - deep-review dismissal after regrouping;
+   - best-label refresh after rescoring.
+5. Update this report as each finding closes with the implementing commit and
+   regression-test name. Do not mark a finding closed until its acceptance
+   criteria and tests pass.
+
+### Suggested change grouping
+
+To keep reviews and regressions manageable, land the work as these change sets:
+
+1. task ownership, generation guards, and catalog reset;
+2. structured similarity cancellation and transactional backend fallback;
+3. cache/analysis signatures, immutable scope, and off-main serialization;
+4. signature-based review/deep-review identity;
+5. singleton policy and removal/migration of the misleading eye preset;
+6. render-cache key correctness;
+7. integration tests, manual verification, and report closeout.
