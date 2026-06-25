@@ -1,6 +1,7 @@
 # Bursts Group and AI Verification Report
 
 Date: 2026-06-25
+Status: **All findings closed**
 
 ## Scope and verification performed
 
@@ -10,13 +11,32 @@ Verification completed:
 
 - Debug app build: **passed**
 - Targeted test suites (`SimilarityEmbeddingBackendTests`, `CullingModelTests`, `CullingGridCoordinatorTests`, `SharpnessScoringTests`): **passed**
+- Full `RawCull` test plan with Thread Sanitizer: **244 tests passed, 0 failed, 0 skipped**
 - Project concurrency settings verified: Swift 6, MainActor default isolation, Approachable Concurrency enabled
 
-The clean build and current tests do not cover the behavioral failures below.
+The findings below document the original problems, their resolutions, and why
+closing each one was important.
+
+## Closure summary
+
+| # | Status | Commit | Resolution | Why closing it was important |
+|---|---|---|---|---|
+| 1 | Closed | `ba72a5e` | The stored task now owns the complete burst-analysis pipeline, with generation and catalog checks around state commits. | Prevents cancelled or superseded analyses from publishing stale results, corrupting cache state, or leaving progress stuck. |
+| 2 | Closed | `d4c772c` | Catalog changes now cancel and clear burst analysis and deep-review state, including their owned tasks. | Prevents one catalog’s rankings, review counts, or AI recommendations from appearing in another catalog. |
+| 3 | Closed | `e5da1e3` | Cache schema 4 validates the embedding backend, CLIP model identity, envelope version, and complete grouping configuration. | Ensures changed AI models, backends, or sensitivity settings actually produce fresh and trustworthy groups. |
+| 4 | Closed | `c505cc7` | A failed or incomplete CLIP pass now recomputes the full scope with Vision instead of mixing embedding types. | Keeps all distances comparable so a transient failure cannot create false burst boundaries. |
+| 5 | Closed | `83645a0` | Review states are restored by `BurstGroupSignature` membership rather than regenerated integer IDs. | Stops Reviewed, Deferred, or Manual Winner decisions from moving to unrelated bursts after regrouping. |
+| 6 | Closed | `7cf4577` | Singleton groups are excluded from burst ranking and review results. | Makes review counts actionable and prevents ordinary single photos from appearing as unreviewable bursts. |
+| 7 | Closed | `a221059` | Deep-review results and winner application now validate the current burst membership signature. | Prevents stale AI evidence or recommendations from being applied after regrouping or catalog changes. |
+| 8 | Closed | `1ec7d09` | The duplicate “Eye Detail” preset was removed. | Avoids presenting head/face scoring as eye-specific analysis and misleading users during culling decisions. |
+| 9 | Closed | `d008f0f` | Similarity embedding work now remains in structured tasks with cancellation checks around decode and inference. | Makes Cancel genuinely stop expensive work and prevents cancelled indexing from overlapping a new pass. |
+| 10 | Closed | `0e2b7cb` | Grid cache identity now includes complete group membership, visible file IDs, score values, and `maxScore`. | Prevents stale sections, best-frame labels, and percentages after regrouping, filtering, or rescoring. |
+| 11 | Closed | `c649814` | Review-state persistence now uses the immutable completed-analysis scope. | Prevents UI filters or selections from overwriting a valid full-scope cache with an inconsistent manifest. |
+| 12 | Closed | `d79d6b9` | Cache DTO conformances are explicitly nonisolated and JSON encoding/decoding runs inside the cache actor instead of `MainActor`. | Prevents large cache payloads from blocking UI interaction while preserving Swift 6 isolation safety. |
 
 ## Findings
 
-### 1. [P1] The stored burst-analysis task is not the task that performs the analysis
+### 1. [P1] [Closed] The stored burst-analysis task is not the task that performs the analysis
 
 Locations:
 
@@ -35,7 +55,7 @@ Impact:
 
 Recommendation: make one owned task execute the complete pipeline, add a generation/catalog identity check before every state commit, and clear progress/task state in a cancellation-safe `defer`.
 
-### 2. [P1] Catalog switching does not reset or cancel burst and deep-AI state
+### 2. [P1] [Closed] Catalog switching does not reset or cancel burst and deep-AI state
 
 Locations:
 
@@ -63,7 +83,7 @@ Impact:
 
 Recommendation: add one catalog-scoped reset/cancellation method and require the selected catalog identity to match before every async result is applied.
 
-### 3. [P1] The burst cache ignores the embedding backend and burst sensitivity
+### 3. [P1] [Closed] The burst cache ignores the embedding backend and burst sensitivity
 
 Locations:
 
@@ -90,7 +110,7 @@ Impact:
 
 Recommendation: persist and validate a complete similarity/grouping signature. Increment the cache schema when adding it.
 
-### 4. [P1] Per-image CLIP fallback creates mixed embeddings that force false burst boundaries
+### 4. [P1] [Closed] Per-image CLIP fallback creates mixed embeddings that force false burst boundaries
 
 Locations:
 
@@ -110,7 +130,7 @@ Impact:
 
 Recommendation: keep one comparable backend for the whole grouping pass. If any CLIP embedding fails, either retry, compute Vision embeddings for all files used by that pass, or exclude the failed frame with an explicit degraded-analysis state.
 
-### 5. [P1] Review states are reassigned to different bursts after regrouping
+### 5. [P1] [Closed] Review states are reassigned to different bursts after regrouping
 
 Locations:
 
@@ -127,7 +147,7 @@ Impact:
 
 Recommendation: snapshot review states by `BurstGroupSignature` before regrouping and restore them by membership signature afterward. Never treat the integer offset as persistent identity.
 
-### 6. [P2] Singleton groups pollute review queues but have no group review UI
+### 6. [P2] [Closed] Singleton groups pollute review queues but have no group review UI
 
 Locations:
 
@@ -146,7 +166,7 @@ Impact:
 
 Recommendation: exclude groups with fewer than two members from burst ranking/review queues, or provide explicit singleton handling and actions.
 
-### 7. [P2] Deep-AI results use unstable group IDs despite already carrying a membership signature
+### 7. [P2] [Closed] Deep-AI results use unstable group IDs despite already carrying a membership signature
 
 Locations:
 
@@ -166,7 +186,7 @@ Impact:
 
 Recommendation: key or validate deep results by catalog plus `BurstGroupSignature`; invalidate mismatches before display and before winner persistence.
 
-### 8. [P2] “Eye Detail” is functionally identical to “Head / Face”
+### 8. [P2] [Closed] “Eye Detail” is functionally identical to “Head / Face”
 
 Locations:
 
@@ -182,7 +202,7 @@ Impact:
 
 Recommendation: either implement eye localization/scoring or remove/rename the preset until it has distinct behavior.
 
-### 9. [P2] Similarity cancellation does not cancel the detached per-file workers
+### 9. [P2] [Closed] Similarity cancellation does not cancel the detached per-file workers
 
 Locations:
 
@@ -199,7 +219,7 @@ Impact:
 
 Recommendation: remove the nested detached task and execute cancellable work directly in the structured child task, with cancellation checks around decode and inference.
 
-### 10. [P2] Grid cache invalidation can leave stale group membership and “best” labels
+### 10. [P2] [Closed] Grid cache invalidation can leave stale group membership and “best” labels
 
 Locations:
 
@@ -221,7 +241,7 @@ Impact:
 
 Recommendation: use deterministic signatures of group member IDs, visible file IDs, relevant score values/version, and `maxScore`.
 
-### 11. [P2] Saving review state can overwrite the cache with a different analysis scope
+### 11. [P2] [Closed] Saving review state can overwrite the cache with a different analysis scope
 
 Locations:
 
@@ -239,7 +259,7 @@ Impact:
 
 Recommendation: store the immutable file scope/signature of the completed analysis and use that scope for all later review-state saves.
 
-### 12. [P3] Large burst-cache JSON encoding and decoding is forced onto MainActor
+### 12. [P3] [Closed] Large burst-cache JSON encoding and decoding is forced onto MainActor
 
 Locations:
 
