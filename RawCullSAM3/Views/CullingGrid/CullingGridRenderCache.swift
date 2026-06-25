@@ -14,42 +14,55 @@ struct CullingGridRenderCacheKey: Hashable {
     // periphery:ignore
     let filesCount: Int
     // periphery:ignore
-    let filesFirstID: UUID?
-    // periphery:ignore
-    let filesLastID: UUID?
+    let filesHash: Int
     // periphery:ignore
     let ratingFilter: GridRatingFilter
     // periphery:ignore
     let reviewQueueFilter: BurstReviewQueueFilter
     // periphery:ignore
-    let scoresCount: Int
+    let scoresHash: Int
 
     init(
         burstGroups: [BurstGroup],
         files: [FileItem],
         ratingFilter: GridRatingFilter,
         reviewQueueFilter: BurstReviewQueueFilter,
-        scoresCount: Int,
+        scores: [UUID: Float],
+        maxScore: Float,
         burstAnalysisResults: [Int: BurstAnalysisResult],
     ) {
         var structureHasher = Hasher()
         for group in burstGroups {
             structureHasher.combine(group.id)
             structureHasher.combine(group.fileIDs.count)
+            for fileID in group.fileIDs {
+                structureHasher.combine(fileID)
+            }
             if let result = burstAnalysisResults[group.id] {
                 structureHasher.combine(result.recommendedFileID)
                 structureHasher.combine(result.reviewState.rawValue)
             }
         }
 
+        var filesHasher = Hasher()
+        for file in files {
+            filesHasher.combine(file.id)
+        }
+
+        var scoresHasher = Hasher()
+        scoresHasher.combine(maxScore)
+        for (id, score) in scores.sorted(by: { $0.key.uuidString < $1.key.uuidString }) {
+            scoresHasher.combine(id)
+            scoresHasher.combine(score)
+        }
+
         self.burstGroupsCount = burstGroups.count
         self.burstStructureHash = structureHasher.finalize()
         self.filesCount = files.count
-        self.filesFirstID = files.first?.id
-        self.filesLastID = files.last?.id
+        self.filesHash = filesHasher.finalize()
         self.ratingFilter = ratingFilter
         self.reviewQueueFilter = reviewQueueFilter
-        self.scoresCount = scoresCount
+        self.scoresHash = scoresHasher.finalize()
     }
 }
 

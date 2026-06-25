@@ -667,7 +667,8 @@ struct CullingGridView<Header: View>: View {
             files: files,
             ratingFilter: ratingFilter,
             reviewQueueFilter: viewModel.burstReviewQueueFilter,
-            scoresCount: viewModel.sharpnessModel.scores.count,
+            scores: viewModel.sharpnessModel.scores,
+            maxScore: viewModel.sharpnessModel.maxScore,
             burstAnalysisResults: viewModel.burstAnalysisResults,
         )
     }
