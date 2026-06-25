@@ -241,12 +241,20 @@ extension RawCullViewModel {
     /// Requires embeddings to already be computed — no-ops otherwise.
     func reGroupBursts() async {
         guard !similarityModel.embeddings.isEmpty,
-              !isCreatingSAM3Masks
+              !isCreatingSAM3Masks,
+              let catalog = selectedSource?.url
         else { return }
         let sorted = burstAnalysisTargetFiles
         guard !sorted.isEmpty else { return }
         guard !Task.isCancelled else { return }
+        let savedReviewStates = reviewStateSnapshots(catalog: catalog, files: sorted)
         await similarityModel.groupBursts(files: sorted)
+        guard !Task.isCancelled, selectedSource?.url == catalog else { return }
+        burstReviewStates = reviewStates(
+            from: savedReviewStates,
+            files: sorted,
+            catalog: catalog,
+        )
         recomputeBurstRankings(files: sorted)
     }
 
@@ -1064,10 +1072,22 @@ extension RawCullViewModel {
 
     func cachedReviewStates(from snapshot: BurstAnalysisCacheSnapshot, files currentFiles: [FileItem]? = nil) -> [Int: BurstReviewState] {
         guard let catalog = selectedSource?.url else { return [:] }
-        let savedStatesBySignature = Dictionary(
-            uniqueKeysWithValues: snapshot.reviewStateSnapshots.map { ($0.signature, $0.state) },
-        )
         let filesForLookup = currentFiles ?? files
+        return reviewStates(
+            from: snapshot.reviewStateSnapshots,
+            files: filesForLookup,
+            catalog: catalog,
+        )
+    }
+
+    func reviewStates(
+        from snapshots: [BurstReviewStateSnapshot],
+        files filesForLookup: [FileItem],
+        catalog: URL,
+    ) -> [Int: BurstReviewState] {
+        let savedStatesBySignature = Dictionary(
+            uniqueKeysWithValues: snapshots.map { ($0.signature, $0.state) },
+        )
         let filesByID = Dictionary(uniqueKeysWithValues: filesForLookup.map { ($0.id, $0) })
 
         var states: [Int: BurstReviewState] = [:]
