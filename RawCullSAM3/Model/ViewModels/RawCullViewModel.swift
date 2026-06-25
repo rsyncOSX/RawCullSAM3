@@ -152,6 +152,8 @@ final class RawCullViewModel {
     @ObservationIgnored var burstAnalysisGeneration = 0
     @ObservationIgnored var burstAnalysisScopeFiles: [FileItem] = []
     @ObservationIgnored var burstAnalysisScopeCatalog: URL?
+    @ObservationIgnored var deepAIReviewTask: Task<Void, Never>?
+    @ObservationIgnored var deepAIReviewGeneration = 0
     @ObservationIgnored var burstAnalysisCache = BurstAnalysisCache.shared
 
     // MARK: - Computed

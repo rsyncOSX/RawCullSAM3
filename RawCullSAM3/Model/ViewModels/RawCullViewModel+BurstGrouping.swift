@@ -266,20 +266,47 @@ extension RawCullViewModel {
 
     func runDeepAIReview(for groupFiles: [FileItem]) async {
         guard !groupFiles.isEmpty,
-              !isDeepAIReviewUnavailable
+              !isDeepAIReviewUnavailable,
+              let catalog = selectedSource?.url
         else { return }
 
         let groupID = groupID(for: groupFiles)
         guard groupID >= 0 else { return }
 
+        deepAIReviewTask?.cancel()
+        deepAIReviewGeneration &+= 1
+        let generation = deepAIReviewGeneration
+        let task = Task {
+            await self.performDeepAIReview(
+                for: groupFiles,
+                groupID: groupID,
+                catalog: catalog,
+                generation: generation,
+            )
+        }
+        deepAIReviewTask = task
+        await task.value
+        if deepAIReviewGeneration == generation {
+            deepAIReviewTask = nil
+        }
+    }
+
+    private func performDeepAIReview(
+        for groupFiles: [FileItem],
+        groupID: Int,
+        catalog: URL,
+        generation: Int,
+    ) async {
         deepAIReviewModel.isRunning = true
         deepAIReviewModel.activeGroupID = groupID
         deepAIReviewModel.statusText = "Preparing deep review..."
 
         defer {
-            deepAIReviewModel.isRunning = false
-            deepAIReviewModel.activeGroupID = nil
-            deepAIReviewModel.statusText = ""
+            if isCurrentDeepAIReview(generation: generation, catalog: catalog) {
+                deepAIReviewModel.isRunning = false
+                deepAIReviewModel.activeGroupID = nil
+                deepAIReviewModel.statusText = ""
+            }
         }
 
         let candidateFiles = deepAIReviewCandidateFiles(groupFiles: groupFiles, groupID: groupID)
@@ -314,7 +341,7 @@ extension RawCullViewModel {
         )
 
         for (rank, file) in candidateFiles.enumerated() {
-            guard !Task.isCancelled else { return }
+            guard isCurrentDeepAIReview(generation: generation, catalog: catalog) else { return }
             deepAIReviewModel.statusText = "Deep reviewing \(file.name)..."
             var fileConfig = baseConfig
             fileConfig.iso = file.exifData?.isoValue ?? 400
@@ -325,6 +352,7 @@ extension RawCullViewModel {
                 preset: preset,
                 subjectLabel: sharpnessModel.saliencyInfo[file.id]?.subjectLabel,
             )
+            guard isCurrentDeepAIReview(generation: generation, catalog: catalog) else { return }
             let deepAnalysis: FocusMaskEngine.DeepAISharpnessAnalysis? = if let mask = maskChoice?.result.mask {
                 await engine.computeDeepAIReviewScore(
                     fromRawURL: file.url,
@@ -337,6 +365,7 @@ extension RawCullViewModel {
             } else {
                 nil
             }
+            guard isCurrentDeepAIReview(generation: generation, catalog: catalog) else { return }
             let promptVerified = Self.deepAIReviewPromptVerified(
                 preset: preset,
                 maskChoice: maskChoice,
@@ -404,6 +433,7 @@ extension RawCullViewModel {
             )
         }
 
+        guard isCurrentDeepAIReview(generation: generation, catalog: catalog) else { return }
         let result = makeDeepAIReviewResult(
             groupID: groupID,
             groupFiles: groupFiles,
@@ -414,6 +444,12 @@ extension RawCullViewModel {
         if deepAIReviewModel.presentedGroupID == nil {
             deepAIReviewModel.presentedGroupID = groupID
         }
+    }
+
+    private func isCurrentDeepAIReview(generation: Int, catalog: URL) -> Bool {
+        !Task.isCancelled &&
+            deepAIReviewGeneration == generation &&
+            selectedSource?.url == catalog
     }
 
     /// Rate the recommended frame in `groupFiles` at ★★★ and reject all others.

@@ -59,12 +59,37 @@ extension RawCullViewModel {
         }
         currentScanAndExtractJPGsActor = nil
 
+        resetCatalogScopedAnalysisState()
         sharpnessModel.reset()
         similarityModel.reset()
         maskInventory = [:]
 
         creatingthumbnails = false
         scanning = false
+    }
+
+    private func resetCatalogScopedAnalysisState() {
+        burstAnalysisTask?.cancel()
+        burstAnalysisTask = nil
+        burstAnalysisGeneration &+= 1
+        burstAnalysisScopeFiles = []
+        burstAnalysisScopeCatalog = nil
+        burstAnalysisProgress = BurstAnalysisProgress()
+        burstAnalysisResults = [:]
+        burstReviewStates = [:]
+        burstReviewQueueFilter = .all
+        activeBurstComparisonGroupID = nil
+        lastBurstUndoEntry = nil
+        comparisonFileIDs = []
+
+        deepAIReviewTask?.cancel()
+        deepAIReviewTask = nil
+        deepAIReviewGeneration &+= 1
+        deepAIReviewModel.results = [:]
+        deepAIReviewModel.isRunning = false
+        deepAIReviewModel.activeGroupID = nil
+        deepAIReviewModel.presentedGroupID = nil
+        deepAIReviewModel.statusText = ""
     }
 
     func handleSourceChange(url: URL) async {
