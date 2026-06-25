@@ -92,7 +92,6 @@ struct CullingGridCoordinatorTests {
 
     @Test(.tags(.smoke))
     func `explicit deep review prompts follow subject label instead of always bird head`() {
-        #expect(RawCullViewModel.deepAIReviewPromptAttempts(preset: .eyeDetail, subjectLabel: "animal") == [.animalHead, .animal, .subject])
         #expect(RawCullViewModel.deepAIReviewPromptAttempts(preset: .headFace, subjectLabel: "person") == [.face, .person, .subject])
         #expect(RawCullViewModel.deepAIReviewPromptAttempts(preset: .headFace, subjectLabel: "bird") == [.birdHead, .bird, .subject])
     }

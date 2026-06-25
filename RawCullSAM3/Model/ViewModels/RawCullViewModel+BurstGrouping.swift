@@ -11,7 +11,6 @@ enum DeepAIReviewPreset: String, CaseIterable, Identifiable, Codable {
     case auto
     case fullSubject
     case headFace
-    case eyeDetail
 
     var id: String {
         rawValue
@@ -22,7 +21,6 @@ enum DeepAIReviewPreset: String, CaseIterable, Identifiable, Codable {
         case .auto: "Auto"
         case .fullSubject: "Full Subject"
         case .headFace: "Head / Face"
-        case .eyeDetail: "Eye Detail"
         }
     }
 }
@@ -394,7 +392,7 @@ extension RawCullViewModel {
 
             let caution: String? = if maskChoice == nil {
                 "No usable SAM mask"
-            } else if promptVerified == false, preset == .headFace || preset == .eyeDetail {
+            } else if promptVerified == false, preset == .headFace {
                 "Specific prompt not found"
             } else if deepAnalysis == nil {
                 "Deep sharpness unavailable"
@@ -764,9 +762,6 @@ extension RawCullViewModel {
         case .headFace:
             return deepAIReviewSpecificPromptAttempts(subjectLabel: subjectLabel)
 
-        case .eyeDetail:
-            return deepAIReviewSpecificPromptAttempts(subjectLabel: subjectLabel)
-
         case .auto:
             let label = subjectLabel?.lowercased() ?? ""
             if label.contains("bird") || label.contains("raptor") || label.contains("wildlife") {
@@ -822,7 +817,7 @@ extension RawCullViewModel {
         case .fullSubject:
             return maskChoice.result.prompt == .subject
 
-        case .headFace, .eyeDetail:
+        case .headFace:
             return !maskChoice.usedFallback && [.birdHead, .animalHead, .face].contains(maskChoice.result.prompt)
 
         case .auto:
