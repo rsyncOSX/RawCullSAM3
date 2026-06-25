@@ -149,6 +149,9 @@ final class RawCullViewModel {
     /// Cancelled when the zoom window closes or a new file is opened for zoom.
     var zoomExtractionTask: Task<Void, Never>?
     @ObservationIgnored var burstAnalysisTask: Task<Void, Never>?
+    @ObservationIgnored var burstAnalysisGeneration = 0
+    @ObservationIgnored var burstAnalysisScopeFiles: [FileItem] = []
+    @ObservationIgnored var burstAnalysisScopeCatalog: URL?
     @ObservationIgnored var burstAnalysisCache = BurstAnalysisCache.shared
 
     // MARK: - Computed

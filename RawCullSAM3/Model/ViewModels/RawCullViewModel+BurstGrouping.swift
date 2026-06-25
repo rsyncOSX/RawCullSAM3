@@ -132,7 +132,32 @@ extension RawCullViewModel {
         else { return }
 
         burstAnalysisTask?.cancel()
-        burstAnalysisTask = Task {}
+        burstAnalysisGeneration &+= 1
+        let generation = burstAnalysisGeneration
+        let task = Task {
+            await self.performBurstAnalysis(
+                files: sorted,
+                catalog: catalog,
+                generation: generation,
+            )
+        }
+        burstAnalysisTask = task
+        await task.value
+        if burstAnalysisGeneration == generation {
+            burstAnalysisTask = nil
+        }
+    }
+
+    private func performBurstAnalysis(
+        files sorted: [FileItem],
+        catalog: URL,
+        generation: Int,
+    ) async {
+        defer {
+            if isCurrentBurstAnalysis(generation: generation, catalog: catalog) {
+                burstAnalysisProgress = BurstAnalysisProgress()
+            }
+        }
 
         burstAnalysisProgress = BurstAnalysisProgress(step: .loadingCache)
         if let snapshot = await burstAnalysisCache.load(
@@ -141,12 +166,14 @@ extension RawCullViewModel {
             thumbnailMaxPixelSize: sharpnessModel.effectiveThumbnailMaxPixelSize,
             sharpnessSignature: currentBurstSharpnessSignature,
         ) {
+            guard isCurrentBurstAnalysis(generation: generation, catalog: catalog) else { return }
             applyCachedBurstAnalysis(remapCachedSnapshot(snapshot, to: sorted), files: sorted)
-            burstAnalysisProgress = BurstAnalysisProgress()
+            burstAnalysisScopeFiles = sorted
+            burstAnalysisScopeCatalog = catalog
             return
         }
 
-        guard !Task.isCancelled else { return }
+        guard isCurrentBurstAnalysis(generation: generation, catalog: catalog) else { return }
         if !sharpnessModel.hasCurrentScores(for: sorted) {
             burstAnalysisProgress = BurstAnalysisProgress(
                 step: .scoringSharpness,
@@ -155,8 +182,9 @@ extension RawCullViewModel {
             await calibrateAndScoreBurstFiles(sorted)
         }
 
-        guard !Task.isCancelled else { return }
+        guard isCurrentBurstAnalysis(generation: generation, catalog: catalog) else { return }
         await SettingsViewModel.shared.ensureLoaded()
+        guard isCurrentBurstAnalysis(generation: generation, catalog: catalog) else { return }
         let preferredEmbeddingBackend = SimilarityScoringModel.preferredEmbeddingBackend(
             useCLIPForSimilarity: SettingsViewModel.shared.useCLIPForSimilarity,
         )
@@ -168,18 +196,25 @@ extension RawCullViewModel {
             await similarityModel.indexFiles(sorted)
         }
 
-        guard !Task.isCancelled else { return }
+        guard isCurrentBurstAnalysis(generation: generation, catalog: catalog) else { return }
         burstAnalysisProgress = BurstAnalysisProgress(step: .grouping)
         await similarityModel.groupBursts(files: sorted)
 
-        guard !Task.isCancelled else { return }
+        guard isCurrentBurstAnalysis(generation: generation, catalog: catalog) else { return }
         burstAnalysisProgress = BurstAnalysisProgress(step: .ranking)
         recomputeBurstRankings(files: sorted)
 
-        guard !Task.isCancelled else { return }
+        guard isCurrentBurstAnalysis(generation: generation, catalog: catalog) else { return }
         burstAnalysisProgress = BurstAnalysisProgress(step: .savingCache)
+        burstAnalysisScopeFiles = sorted
+        burstAnalysisScopeCatalog = catalog
         await saveBurstAnalysisCache(catalog: catalog, files: sorted)
-        burstAnalysisProgress = BurstAnalysisProgress()
+    }
+
+    private func isCurrentBurstAnalysis(generation: Int, catalog: URL) -> Bool {
+        !Task.isCancelled &&
+            burstAnalysisGeneration == generation &&
+            selectedSource?.url == catalog
     }
 
     /// Clear loaded burst analysis artifacts, delete the saved burst cache for
@@ -940,6 +975,9 @@ extension RawCullViewModel {
     func clearLoadedBurstAnalysisForReindex() {
         burstAnalysisTask?.cancel()
         burstAnalysisTask = nil
+        burstAnalysisGeneration &+= 1
+        burstAnalysisScopeFiles = []
+        burstAnalysisScopeCatalog = nil
         burstAnalysisProgress = BurstAnalysisProgress()
         burstAnalysisResults = [:]
         burstReviewStates = [:]
