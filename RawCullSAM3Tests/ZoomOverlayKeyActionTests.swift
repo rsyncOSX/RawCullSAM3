@@ -90,6 +90,16 @@ struct ZoomOverlayKeyActionTests {
             navigationAxis: .horizontal,
         ) == .toggleFocusMask)
         #expect(ZoomOverlayKeyAction.resolve(
+            characters: "s",
+            keyCode: 0,
+            navigationAxis: .horizontal,
+        ) == .toggleSubjectMask)
+        #expect(ZoomOverlayKeyAction.resolve(
+            characters: "S",
+            keyCode: 0,
+            navigationAxis: .horizontal,
+        ) == .toggleSubjectMask)
+        #expect(ZoomOverlayKeyAction.resolve(
             characters: "a",
             keyCode: 0,
             navigationAxis: .horizontal,

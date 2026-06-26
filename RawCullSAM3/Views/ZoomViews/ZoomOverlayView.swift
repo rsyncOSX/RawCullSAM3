@@ -20,6 +20,7 @@ nonisolated enum ZoomOverlayKeyAction: Equatable {
     case toggleEmbeddedJPG
     case toggleDevelopedRAW
     case toggleFocusMask
+    case toggleSubjectMask
     case toggleFocusPoints
     case rating(Int)
 
@@ -63,6 +64,9 @@ nonisolated enum ZoomOverlayKeyAction: Equatable {
 
         case "f", "F":
             .toggleFocusMask
+
+        case "s", "S":
+            .toggleSubjectMask
 
         case "a", "A":
             .toggleFocusPoints
@@ -371,7 +375,7 @@ struct ZoomOverlayView: View {
             dismiss()
             return .handled
         }
-        .onKeyPress(characters: CharacterSet(charactersIn: "+-jJrRfFaAxXpP012345tT")) { press in
+        .onKeyPress(characters: CharacterSet(charactersIn: "+-jJrRfFsSaAxXpP012345tT")) { press in
             handleKeyAction(ZoomOverlayKeyAction.resolve(
                 characters: press.characters,
                 keyCode: 0,
@@ -405,10 +409,8 @@ struct ZoomOverlayView: View {
         }
         .onChange(of: viewModel.selectedFile) { _, _ in
             guard viewModel.zoomOverlayVisible else { return }
-            sourceSelection.resetForNewImage()
-            clearRAWMessage()
             pendingInitialZoomMode = viewModel.zoomOverlayLaunchContext.initialZoomMode
-            reload()
+            prepareSourceAndReload(resetForNewImage: true)
         }
         .task(id: viewModel.zoomOverlayCGImage?.hashValue) {
             try? await Task.sleep(for: .milliseconds(300))
@@ -422,6 +424,11 @@ struct ZoomOverlayView: View {
                 try? await Task.sleep(for: .milliseconds(400))
                 guard !Task.isCancelled else { return }
                 await regenerateMaskFromCG()
+            }
+        }
+        .onChange(of: viewModel.isCreatingSAM3Masks) { oldValue, newValue in
+            if oldValue, !newValue {
+                loadCachedSubjectMask()
             }
         }
     }
@@ -613,6 +620,10 @@ struct ZoomOverlayView: View {
             showFocusMask.toggle()
             return .handled
 
+        case .toggleSubjectMask:
+            toggleSubjectMask()
+            return .handled
+
         case .toggleFocusPoints:
             showFocusPoints.toggle()
             return .handled
@@ -704,9 +715,7 @@ struct ZoomOverlayView: View {
         subjectMask = nil
         subjectSegmentationState = .idle
 
-        guard let selectedFile = viewModel.selectedFile,
-              viewModel.zoomOverlayCGImage != nil
-        else { return }
+        guard let selectedFile = viewModel.selectedFile else { return }
 
         subjectSegmentationTask = Task {
             let result = await SAM3SubjectMaskCacheReader.loadCachedMask(for: selectedFile)
@@ -799,6 +808,17 @@ struct ZoomOverlayView: View {
                 .resizable()
                 .scaledToFit()
                 .frame(width: size.width, height: size.height)
+
+            if showSubjectMask, let mask = subjectMask {
+                Image(decorative: mask, scale: 1.0, orientation: .up)
+                    .resizable()
+                    .interpolation(.high)
+                    .scaledToFit()
+                    .frame(width: size.width, height: size.height)
+                    .blendMode(.plusLighter)
+                    .opacity(0.72)
+                    .transition(.opacity)
+            }
         }
         .scaleEffect(currentScale)
         .offset(offset)
