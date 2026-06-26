@@ -1,5 +1,5 @@
 {
-  "originHash" : "9a0a1fcc1c1a955a70afbd9d2a5707b51be386f601e02ebc769c1efba25d16bf",
+  "originHash" : "f60189233e03e4fab8419df5e2b7cd378c424523f23a834ca1417731ddb24098",
   "pins" : [
     {
       "identity" : "coreai-models",
@@ -53,15 +53,6 @@
       "state" : {
         "revision" : "f0c8601b69c586ab24398b74ea6535109bbb7574",
         "version" : "1.1.0"
-      }
-    },
-    {
-      "identity" : "rsyncanalyse",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/rsyncOSX/RsyncAnalyse",
-      "state" : {
-        "revision" : "1e26aac6fd08b3ff858da4cf1983e7d6daa39f19",
-        "version" : "1.0.0"
       }
     },
     {
