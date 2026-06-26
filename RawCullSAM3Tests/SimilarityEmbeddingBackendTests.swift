@@ -124,6 +124,148 @@ struct SimilarityEmbeddingBackendTests {
     }
 
     @Test
+    func `successful CLIP indexing stores embeddings without labels`() async throws {
+        let files = [
+            makeSimilarityTestFile("one.ARW"),
+            makeSimilarityTestFile("two.ARW")
+        ]
+        let model = SimilarityScoringModel()
+
+        await model.indexFiles(
+            files,
+            preferredBackendOverride: .clip,
+            embeddingComputer: { url, _, backend, _ in
+                #expect(backend == .clip)
+                let value: Float = url.lastPathComponent == "one.ARW" ? 1 : 2
+                return SimilarityIndexResult(
+                    embeddingData: SimilarityEmbeddingEnvelope.encodeCLIP([value, 0]) ?? Data(),
+                    clipLabel: nil,
+                    clipConfidence: nil,
+                )
+            },
+        )
+
+        #expect(model.embeddingBackend == .clip)
+        #expect(!model.didFallbackFromCLIP)
+        #expect(model.clipEmbeddingCount == files.count)
+        #expect(model.visionEmbeddingCount == 0)
+        #expect(model.clipLabels.isEmpty)
+        #expect(model.isIndexing == false)
+        #expect(model.indexingProgress == 0)
+        #expect(model.indexingTotal == 0)
+    }
+
+    @Test
+    func `incomplete CLIP pass recomputes full scope with Vision`() async throws {
+        let files = [
+            makeSimilarityTestFile("one.ARW"),
+            makeSimilarityTestFile("two.ARW"),
+            makeSimilarityTestFile("three.ARW")
+        ]
+        let tracker = SimilarityIndexingTestTracker()
+        let model = SimilarityScoringModel()
+
+        await model.indexFiles(
+            files,
+            preferredBackendOverride: .clip,
+            embeddingComputer: { url, _, backend, _ in
+                await tracker.record(url: url, backend: backend)
+                if backend == .clip, url.lastPathComponent == "two.ARW" {
+                    return nil
+                }
+                if backend == .clip {
+                    return SimilarityIndexResult(
+                        embeddingData: SimilarityEmbeddingEnvelope.encodeCLIP([1, 0]) ?? Data(),
+                        clipLabel: nil,
+                        clipConfidence: nil,
+                    )
+                }
+                return SimilarityIndexResult(
+                    embeddingData: Data("vision-\(url.lastPathComponent)".utf8),
+                    clipLabel: nil,
+                    clipConfidence: nil,
+                )
+            },
+        )
+
+        let visionFiles = await tracker.fileNames(for: .visionFeaturePrint)
+        #expect(model.embeddingBackend == .visionFeaturePrint)
+        #expect(model.didFallbackFromCLIP)
+        #expect(model.clipEmbeddingCount == 0)
+        #expect(model.visionEmbeddingCount == files.count)
+        #expect(visionFiles.sorted() == files.map(\.name).sorted())
+    }
+
+    @Test
+    func `Vision fallback uses bounded concurrency`() async throws {
+        let files = (1 ... 12).map { makeSimilarityTestFile("file-\($0).ARW") }
+        let tracker = SimilarityIndexingTestTracker()
+        let model = SimilarityScoringModel()
+
+        await model.indexFiles(
+            files,
+            preferredBackendOverride: .clip,
+            embeddingComputer: { url, _, backend, _ in
+                if backend == .clip {
+                    return nil
+                }
+                await tracker.beginVisionWork()
+                try? await Task.sleep(nanoseconds: 5_000_000)
+                await tracker.endVisionWork(url: url)
+                return SimilarityIndexResult(
+                    embeddingData: Data("vision-\(url.lastPathComponent)".utf8),
+                    clipLabel: nil,
+                    clipConfidence: nil,
+                )
+            },
+        )
+
+        #expect(await tracker.maximumActiveVisionWork() <= 4)
+        #expect(await tracker.fileNames(for: .visionFeaturePrint).count == files.count)
+        #expect(model.didFallbackFromCLIP)
+    }
+
+    @Test
+    func `cancelling indexing clears progress state`() async throws {
+        let files = (1 ... 8).map { makeSimilarityTestFile("cancel-\($0).ARW") }
+        let tracker = SimilarityIndexingTestTracker()
+        let model = SimilarityScoringModel()
+
+        let task = Task {
+            await model.indexFiles(
+                files,
+                preferredBackendOverride: .visionFeaturePrint,
+                embeddingComputer: { url, _, backend, _ in
+                    await tracker.record(url: url, backend: backend)
+                    do {
+                        try await Task.sleep(nanoseconds: 5_000_000_000)
+                    } catch {
+                        return nil
+                    }
+                    return SimilarityIndexResult(
+                        embeddingData: Data("vision-\(url.lastPathComponent)".utf8),
+                        clipLabel: nil,
+                        clipConfidence: nil,
+                    )
+                },
+            )
+        }
+
+        for _ in 0 ..< 100 {
+            if await tracker.totalCalls() > 0 { break }
+            try await Task.sleep(nanoseconds: 1_000_000)
+        }
+
+        model.cancelIndexing()
+        await task.value
+
+        #expect(model.isIndexing == false)
+        #expect(model.indexingProgress == 0)
+        #expect(model.indexingTotal == 0)
+        #expect(model.indexingEstimatedSeconds == 0)
+    }
+
+    @Test
     func `burst grouping cache invalidates when embedding payload changes`() async throws {
         let files = [
             makeSimilarityTestFile("one.ARW", seconds: 0),
@@ -162,4 +304,38 @@ private func makeSimilarityTestFile(_ name: String, seconds: TimeInterval = 0) -
         exifData: nil,
         afFocusNormalized: nil,
     )
+}
+
+private actor SimilarityIndexingTestTracker {
+    private var calls: [(url: URL, backend: SimilarityEmbeddingBackend)] = []
+    private var activeVisionWork = 0
+    private var maxActiveVisionWork = 0
+
+    func record(url: URL, backend: SimilarityEmbeddingBackend) {
+        calls.append((url, backend))
+    }
+
+    func fileNames(for backend: SimilarityEmbeddingBackend) -> [String] {
+        calls
+            .filter { $0.backend == backend }
+            .map { $0.url.lastPathComponent }
+    }
+
+    func totalCalls() -> Int {
+        calls.count
+    }
+
+    func beginVisionWork() {
+        activeVisionWork += 1
+        maxActiveVisionWork = max(maxActiveVisionWork, activeVisionWork)
+    }
+
+    func endVisionWork(url: URL) {
+        calls.append((url, .visionFeaturePrint))
+        activeVisionWork -= 1
+    }
+
+    func maximumActiveVisionWork() -> Int {
+        maxActiveVisionWork
+    }
 }

@@ -20,11 +20,26 @@ actor CoreAICLIPProvider {
     }
 
     func imageEmbedding(for image: CGImage) async throws -> [Float] {
-        try await imageAnalysis(for: image).embedding
+        let model = try await loadModel()
+        return try await imageEmbedding(for: image, model: model)
     }
 
     func imageAnalysis(for image: CGImage) async throws -> CLIPImageAnalysis {
         let model = try await loadModel()
+        let normalizedEmbedding = try await imageEmbedding(for: image, model: model)
+        let labels = try await loadLabelEmbeddings(for: model)
+        let best = Self.bestLabel(for: normalizedEmbedding, labels: labels)
+        return CLIPImageAnalysis(
+            embedding: normalizedEmbedding,
+            label: best?.label,
+            confidence: best?.confidence,
+        )
+    }
+
+    private func imageEmbedding(
+        for image: CGImage,
+        model: LoadedCLIPModel,
+    ) async throws -> [Float] {
         let imageInput = try Self.makeImageInput(
             image,
             descriptor: model.imageDescriptor,
@@ -52,14 +67,7 @@ actor CoreAICLIPProvider {
         guard let values = imageEmbedding, !values.isEmpty else {
             throw CLIPProviderError.invalidModel("CLIP image embedding output is empty.")
         }
-        let normalizedEmbedding = SimilarityEmbeddingEnvelope.normalized(values)
-        let labels = try await loadLabelEmbeddings(for: model)
-        let best = Self.bestLabel(for: normalizedEmbedding, labels: labels)
-        return CLIPImageAnalysis(
-            embedding: normalizedEmbedding,
-            label: best?.label,
-            confidence: best?.confidence,
-        )
+        return SimilarityEmbeddingEnvelope.normalized(values)
     }
 
     private func loadModel() async throws -> LoadedCLIPModel {

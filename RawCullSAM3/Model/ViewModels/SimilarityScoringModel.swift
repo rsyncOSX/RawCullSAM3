@@ -106,6 +106,13 @@ nonisolated struct SimilarityIndexResult {
     let clipConfidence: Float?
 }
 
+typealias SimilarityEmbeddingComputer = @Sendable (
+    _ url: URL,
+    _ maxPixelSize: Int,
+    _ preferredBackend: SimilarityEmbeddingBackend,
+    _ clipProvider: CoreAICLIPProvider?,
+) async -> SimilarityIndexResult?
+
 // MARK: - Model
 
 @Observable @MainActor
@@ -199,6 +206,7 @@ final class SimilarityScoringModel {
     @ObservationIgnored private var _groupingGeneration: Int = 0
     @ObservationIgnored private var _adjacentDistanceCache: [String: Float] = [:]
     @ObservationIgnored private var _adjacentDistanceCacheSignature: Int = 0
+    private static let maxConcurrentIndexingTasks = 4
 
     // MARK: - Public API
 
@@ -255,19 +263,37 @@ final class SimilarityScoringModel {
     /// images (same thumbnail size used by sharpness scoring). CLIP is preferred
     /// when installed; Vision feature prints are used as the fallback backend.
     /// Already-embedded files are skipped for efficiency.
-    func indexFiles(_ files: [FileItem], thumbnailMaxPixelSize: Int = 512) async {
+    func indexFiles(
+        _ files: [FileItem],
+        thumbnailMaxPixelSize: Int = 512,
+        preferredBackendOverride: SimilarityEmbeddingBackend? = nil,
+        embeddingComputer: @escaping SimilarityEmbeddingComputer = SimilarityScoringModel.computeEmbedding,
+    ) async {
         guard !files.isEmpty else { return }
 
+        var completedNormally = false
         isIndexing = true
         indexingProgress = 0
         indexingTotal = files.count
         indexingEstimatedSeconds = 0
-        defer { isIndexing = false }
+        defer {
+            isIndexing = false
+            if !completedNormally {
+                indexingProgress = 0
+                indexingTotal = 0
+                indexingEstimatedSeconds = 0
+            }
+        }
 
-        await SettingsViewModel.shared.ensureLoaded()
-        let preferredBackend = Self.preferredEmbeddingBackend(
-            useCLIPForSimilarity: SettingsViewModel.shared.useCLIPForSimilarity,
-        )
+        let preferredBackend: SimilarityEmbeddingBackend
+        if let preferredBackendOverride {
+            preferredBackend = preferredBackendOverride
+        } else {
+            await SettingsViewModel.shared.ensureLoaded()
+            preferredBackend = Self.preferredEmbeddingBackend(
+                useCLIPForSimilarity: SettingsViewModel.shared.useCLIPForSimilarity,
+            )
+        }
         embeddingBackend = preferredBackend
         didFallbackFromCLIP = false
         let clipProvider = preferredBackend == .clip ? CoreAICLIPProvider() : nil
@@ -280,120 +306,68 @@ final class SimilarityScoringModel {
         }
         if toIndex.isEmpty {
             indexingProgress = files.count
+            completedNormally = true
             return
         }
         indexingTotal = toIndex.count
 
         let thumbSize = thumbnailMaxPixelSize
-        var iterator = toIndex.makeIterator()
-        var active = 0
-        let maxConcurrent = 4
 
         let workTask = Task {
-            await withTaskGroup(of: (UUID, SimilarityIndexResult?).self) { group in
-                while active < maxConcurrent, let file = iterator.next() {
-                    let url = file.url
-                    let id = file.id
-                    let provider = clipProvider
-                    group.addTask(priority: .userInitiated) {
-                        let result = await Self.computeEmbedding(
-                            url: url,
-                            maxPixelSize: thumbSize,
-                            preferredBackend: preferredBackend,
-                            clipProvider: provider,
-                        )
-                        return (id, result)
-                    }
-                    active += 1
-                }
+            guard var localResults = await self.runBoundedIndexingPass(
+                files: toIndex,
+                thumbnailMaxPixelSize: thumbSize,
+                preferredBackend: preferredBackend,
+                clipProvider: clipProvider,
+                embeddingComputer: embeddingComputer,
+            ) else { return }
 
-                var localResults: [UUID: SimilarityIndexResult] = [:]
-                var completedCount = 0
-                var completionTimes: [TimeInterval] = []
-                var lastCompletionTime: Date?
-
-                for await (id, result) in group {
-                    active -= 1
-                    guard !Task.isCancelled else { break }
-
-                    if let result { localResults[id] = result }
-                    completedCount += 1
-                    self.indexingProgress = completedCount
-
-                    let now = Date()
-                    if let lastCompletionTime {
-                        completionTimes.append(now.timeIntervalSince(lastCompletionTime))
-                    }
-                    lastCompletionTime = now
-
-                    if completedCount >= kMinimumSamplesBeforeEstimation, !completionTimes.isEmpty {
-                        let recentTimes = completionTimes.suffix(min(kEstimationWindowSize, completionTimes.count))
-                        let avgSecondsPerCompletion = recentTimes.reduce(0, +) / Double(recentTimes.count)
-                        let remainingItems = toIndex.count - completedCount
-                        self.indexingEstimatedSeconds = Swift.max(0, Int(avgSecondsPerCompletion * Double(remainingItems)))
-                    }
-
-                    if let file = iterator.next() {
-                        let url = file.url
-                        let id = file.id
-                        let provider = clipProvider
-                        group.addTask(priority: .userInitiated) {
-                            let result = await Self.computeEmbedding(
-                                url: url,
-                                maxPixelSize: thumbSize,
-                                preferredBackend: preferredBackend,
-                                clipProvider: provider,
-                            )
-                            return (id, result)
-                        }
-                        active += 1
-                    }
-                }
-
-                guard !Task.isCancelled else { return }
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
                 let requiresVisionFallback = Self.requiresVisionFallback(
                     preferredBackend: preferredBackend,
                     expectedCount: toIndex.count,
                     results: localResults,
                 )
+                if !requiresVisionFallback {
+                    self.mergeIndexingResults(localResults)
+                }
+            }
 
-                if requiresVisionFallback {
-                    Logger.process.warning(
-                        "SimilarityScoringModel: CLIP indexing was incomplete; recomputing the entire analysis scope with Vision embeddings",
-                    )
-                    localResults = [:]
-                    self.indexingProgress = 0
-                    self.indexingTotal = files.count
+            guard Self.requiresVisionFallback(
+                preferredBackend: preferredBackend,
+                expectedCount: toIndex.count,
+                results: localResults,
+            ) else { return }
 
-                    await withTaskGroup(of: (UUID, SimilarityIndexResult?).self) { fallbackGroup in
-                        for file in files {
-                            let url = file.url
-                            let id = file.id
-                            fallbackGroup.addTask(priority: .userInitiated) {
-                                let result = await Self.computeEmbedding(
-                                    url: url,
-                                    maxPixelSize: thumbSize,
-                                    preferredBackend: .visionFeaturePrint,
-                                )
-                                return (id, result)
-                            }
-                        }
+            Logger.process.warning(
+                "SimilarityScoringModel: CLIP indexing was incomplete; recomputing the entire analysis scope with bounded Vision embeddings",
+            )
+            await MainActor.run {
+                self.indexingProgress = 0
+                self.indexingTotal = files.count
+                self.indexingEstimatedSeconds = 0
+            }
 
-                        var fallbackCompleted = 0
-                        for await (id, result) in fallbackGroup {
-                            guard !Task.isCancelled else {
-                                fallbackGroup.cancelAll()
-                                return
-                            }
-                            if let result {
-                                localResults[id] = result
-                            }
-                            fallbackCompleted += 1
-                            self.indexingProgress = fallbackCompleted
-                        }
-                    }
-                    guard !Task.isCancelled else { return }
+            guard let fallbackResults = await self.runBoundedIndexingPass(
+                files: files,
+                thumbnailMaxPixelSize: thumbSize,
+                preferredBackend: .visionFeaturePrint,
+                clipProvider: nil,
+                embeddingComputer: embeddingComputer,
+            ) else { return }
 
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                localResults = fallbackResults
+                if Self.requiresVisionFallback(
+                    preferredBackend: .visionFeaturePrint,
+                    expectedCount: files.count,
+                    results: localResults,
+                ) {
+                    Logger.process.warning("SimilarityScoringModel: Vision fallback indexing was incomplete")
+                }
+                if !Task.isCancelled {
                     for file in files {
                         self.embeddings[file.id] = nil
                         self.clipLabels[file.id] = nil
@@ -401,26 +375,8 @@ final class SimilarityScoringModel {
                     }
                     self.embeddingBackend = .visionFeaturePrint
                     self.didFallbackFromCLIP = true
+                    self.mergeIndexingResults(localResults)
                 }
-
-                // Merge newly computed embeddings with any pre-existing ones.
-                for (id, result) in localResults {
-                    self.embeddings[id] = result.embeddingData
-                    if let label = result.clipLabel {
-                        self.clipLabels[id] = label
-                    } else {
-                        self.clipLabels[id] = nil
-                    }
-                    if let confidence = result.clipConfidence {
-                        self.clipLabelConfidences[id] = confidence
-                    } else {
-                        self.clipLabelConfidences[id] = nil
-                    }
-                }
-                self.refreshEmbeddingBackendCounts()
-                Logger.process.info(
-                    "SimilarityScoringModel: indexed \(localResults.count) files; stored \(self.clipEmbeddingCount) CLIP and \(self.visionEmbeddingCount) Vision embeddings",
-                )
             }
         }
 
@@ -429,6 +385,7 @@ final class SimilarityScoringModel {
         _indexingTask = nil
         guard !workTask.isCancelled else { return }
 
+        completedNormally = true
         indexingProgress = 0
         indexingTotal = 0
         indexingEstimatedSeconds = 0
@@ -617,6 +574,99 @@ final class SimilarityScoringModel {
         visionEmbeddingCount = counts.vision
     }
 
+    private func mergeIndexingResults(_ results: [UUID: SimilarityIndexResult]) {
+        for (id, result) in results {
+            embeddings[id] = result.embeddingData
+            if let label = result.clipLabel {
+                clipLabels[id] = label
+            } else {
+                clipLabels[id] = nil
+            }
+            if let confidence = result.clipConfidence {
+                clipLabelConfidences[id] = confidence
+            } else {
+                clipLabelConfidences[id] = nil
+            }
+        }
+        refreshEmbeddingBackendCounts()
+        Logger.process.info(
+            "SimilarityScoringModel: indexed \(results.count) files; stored \(self.clipEmbeddingCount) CLIP and \(self.visionEmbeddingCount) Vision embeddings",
+        )
+    }
+
+    private func runBoundedIndexingPass(
+        files: [FileItem],
+        thumbnailMaxPixelSize: Int,
+        preferredBackend: SimilarityEmbeddingBackend,
+        clipProvider: CoreAICLIPProvider?,
+        maxConcurrent: Int = maxConcurrentIndexingTasks,
+        embeddingComputer: @escaping SimilarityEmbeddingComputer,
+    ) async -> [UUID: SimilarityIndexResult]? {
+        guard !files.isEmpty else { return [:] }
+
+        var iterator = files.makeIterator()
+        var active = 0
+        let limit = Swift.max(1, maxConcurrent)
+
+        return await withTaskGroup(of: (UUID, SimilarityIndexResult?).self) { group in
+            while active < limit, let file = iterator.next() {
+                let url = file.url
+                let id = file.id
+                let provider = clipProvider
+                group.addTask(priority: .userInitiated) {
+                    guard !Task.isCancelled else { return (id, nil) }
+                    let result = await embeddingComputer(url, thumbnailMaxPixelSize, preferredBackend, provider)
+                    return (id, result)
+                }
+                active += 1
+            }
+
+            var localResults: [UUID: SimilarityIndexResult] = [:]
+            var completedCount = 0
+            var completionTimes: [TimeInterval] = []
+            var lastCompletionTime: Date?
+
+            for await (id, result) in group {
+                active -= 1
+                guard !Task.isCancelled else {
+                    group.cancelAll()
+                    return nil
+                }
+
+                if let result { localResults[id] = result }
+                completedCount += 1
+                indexingProgress = completedCount
+
+                let now = Date()
+                if let lastCompletionTime {
+                    completionTimes.append(now.timeIntervalSince(lastCompletionTime))
+                }
+                lastCompletionTime = now
+
+                if completedCount >= kMinimumSamplesBeforeEstimation, !completionTimes.isEmpty {
+                    let recentTimes = completionTimes.suffix(min(kEstimationWindowSize, completionTimes.count))
+                    let avgSecondsPerCompletion = recentTimes.reduce(0, +) / Double(recentTimes.count)
+                    let remainingItems = files.count - completedCount
+                    indexingEstimatedSeconds = Swift.max(0, Int(avgSecondsPerCompletion * Double(remainingItems)))
+                }
+
+                if let file = iterator.next() {
+                    let url = file.url
+                    let id = file.id
+                    let provider = clipProvider
+                    group.addTask(priority: .userInitiated) {
+                        guard !Task.isCancelled else { return (id, nil) }
+                        let result = await embeddingComputer(url, thumbnailMaxPixelSize, preferredBackend, provider)
+                        return (id, result)
+                    }
+                    active += 1
+                }
+            }
+
+            return localResults
+        }
+    }
+
     // MARK: - Static helpers (nonisolated, used from detached tasks)
 
     /// Decode a thumbnail from a Sony ARW file and compute a similarity embedding.
@@ -639,13 +689,13 @@ final class SimilarityScoringModel {
 
         if preferredBackend == .clip, let clipProvider {
             do {
-                let analysis = try await clipProvider.imageAnalysis(for: cgImage)
+                let embedding = try await clipProvider.imageEmbedding(for: cgImage)
                 guard !Task.isCancelled else { return nil }
-                if let data = SimilarityEmbeddingEnvelope.encodeCLIP(analysis.embedding) {
+                if let data = SimilarityEmbeddingEnvelope.encodeCLIP(embedding) {
                     return SimilarityIndexResult(
                         embeddingData: data,
-                        clipLabel: analysis.label,
-                        clipConfidence: analysis.confidence,
+                        clipLabel: nil,
+                        clipConfidence: nil,
                     )
                 }
             } catch is CancellationError {
