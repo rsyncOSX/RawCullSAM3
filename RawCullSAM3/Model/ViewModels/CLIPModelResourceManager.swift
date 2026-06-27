@@ -90,7 +90,7 @@ nonisolated struct CLIPModelResourceManager {
             metadataVersion,
             mainAsset,
             assetSize?.stringValue ?? "",
-            assetModified.map { String($0.timeIntervalSince1970) } ?? "",
+            assetModified.map { String($0.timeIntervalSince1970) } ?? ""
         ].joined(separator: "|")
     }
 

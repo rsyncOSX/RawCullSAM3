@@ -108,7 +108,7 @@ struct SimilarityEmbeddingBackendTests {
         let visionData = Data("vision-placeholder".utf8)
         let results = [
             clipID: SimilarityIndexResult(embeddingData: clipData, clipLabel: nil, clipConfidence: nil),
-            visionID: SimilarityIndexResult(embeddingData: visionData, clipLabel: nil, clipConfidence: nil),
+            visionID: SimilarityIndexResult(embeddingData: visionData, clipLabel: nil, clipConfidence: nil)
         ]
 
         #expect(SimilarityScoringModel.requiresVisionFallback(
@@ -124,7 +124,7 @@ struct SimilarityEmbeddingBackendTests {
     }
 
     @Test
-    func `successful CLIP indexing stores embeddings without labels`() async throws {
+    func `successful CLIP indexing stores embeddings without labels`() async {
         let files = [
             makeSimilarityTestFile("one.ARW"),
             makeSimilarityTestFile("two.ARW")
@@ -156,7 +156,7 @@ struct SimilarityEmbeddingBackendTests {
     }
 
     @Test
-    func `incomplete CLIP pass recomputes full scope with Vision`() async throws {
+    func `incomplete CLIP pass recomputes full scope with Vision`() async {
         let files = [
             makeSimilarityTestFile("one.ARW"),
             makeSimilarityTestFile("two.ARW"),
@@ -197,7 +197,7 @@ struct SimilarityEmbeddingBackendTests {
     }
 
     @Test
-    func `Vision fallback uses bounded concurrency`() async throws {
+    func `Vision fallback uses bounded concurrency`() async {
         let files = (1 ... 12).map { makeSimilarityTestFile("file-\($0).ARW") }
         let tracker = SimilarityIndexingTestTracker()
         let model = SimilarityScoringModel()

@@ -15,8 +15,10 @@ struct BurstGroupPresentation: Equatable {
         switch result.confidence {
         case .high:
             return "Best"
+
         case .medium:
             return "Suggested"
+
         case .low:
             return "Check frame"
         }

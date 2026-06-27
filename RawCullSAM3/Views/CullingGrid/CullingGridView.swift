@@ -96,7 +96,6 @@ private struct BurstGroupHeaderView: View {
     private var groupID: Int? {
         files.lazy.compactMap { viewModel.similarityModel.burstGroupLookup[$0.id] }.first
     }
-
 }
 
 struct BatchBadgeSelectionItem: Identifiable {
