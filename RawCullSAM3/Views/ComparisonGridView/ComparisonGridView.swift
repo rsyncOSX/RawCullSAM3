@@ -20,7 +20,16 @@ struct ComparisonGridView: View {
                 .ignoresSafeArea()
 
             if files.count > 1 {
-                ZStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 0) {
+                    if burstComparisonResult != nil {
+                        BurstComparisonEvidenceView(
+                            inspectorIsPresented: showCandidateInspector,
+                            onBack: viewModel.returnToActiveBurstGroupView,
+                        )
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 6)
+                    }
+
                     GeometryReader { geometry in
                         ScrollView(.horizontal) {
                             LazyHStack(spacing: 0) {
@@ -79,27 +88,6 @@ struct ComparisonGridView: View {
                             else { return }
                             viewModel.selectedFileID = newID
                         }
-                    }
-
-                    if let burstComparisonResult {
-                        BurstComparisonEvidenceView(
-                            result: burstComparisonResult,
-                            selectedFile: selectedComparisonFile,
-                            canApplyOneClickCulling: canApplyOneClickCulling,
-                            onKeepBest: { viewModel.keepBestInGroup(from: allComparisonFiles) },
-                            onKeepTopTwo: { viewModel.keepTopTwoInGroup(from: allComparisonFiles) },
-                            burstActionsUnavailable: viewModel.isCreatingSAM3Masks,
-                            finalistFocusActive: finalistFocusActive,
-                            onInspectFinalists: inspectFinalists,
-                            onShowAll: showAllCandidates,
-                            onSetManualWinner: { file in
-                                viewModel.setManualBurstWinner(file, in: allComparisonFiles)
-                            },
-                            onBack: viewModel.returnToActiveBurstGroupView,
-                        )
-                        .padding(.horizontal, 8)
-                        .padding(.top, 8)
-                        .zIndex(2)
                     }
                 }
             } else {
@@ -476,113 +464,27 @@ struct ComparisonGridView: View {
 }
 
 private struct BurstComparisonEvidenceView: View {
-    let result: BurstAnalysisResult
-    let selectedFile: FileItem?
-    let canApplyOneClickCulling: Bool
-    let onKeepBest: () -> Void
-    let onKeepTopTwo: () -> Void
-    let burstActionsUnavailable: Bool
-    let finalistFocusActive: Bool
-    let onInspectFinalists: () -> Void
-    let onShowAll: () -> Void
-    let onSetManualWinner: (FileItem) -> Void
+    let inspectorIsPresented: Bool
     let onBack: () -> Void
 
     var body: some View {
-        HStack(spacing: 8) {
-            statusSummary
-                .frame(maxWidth: 440, alignment: .leading)
+        VStack(alignment: .leading, spacing: 4) {
+            Button("Back To Group", action: onBack)
+                .controlSize(.mini)
 
-            Spacer(minLength: 0)
-            actionControls
+            Text(inspectorHint)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
         }
-        .font(.caption2)
-        .lineLimit(1)
+        .font(.caption2.weight(.semibold))
         .padding(.horizontal, 6)
         .padding(.vertical, 3)
         .foregroundStyle(.white)
-        .frame(maxWidth: 760)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 6))
         .shadow(color: .black.opacity(0.22), radius: 6, x: 0, y: 1)
     }
 
-    private var statusSummary: some View {
-        HStack(spacing: 6) {
-            Text("Burst \(result.groupID + 1)")
-                .font(.caption.weight(.semibold))
-                .fixedSize(horizontal: true, vertical: false)
-
-            Text(result.confidence.title)
-                .font(.caption2.weight(.semibold))
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: true, vertical: false)
-
-            if result.reviewState == .manualWinnerOverride {
-                Text("Manual winner")
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(.orange)
-                    .fixedSize(horizontal: true, vertical: false)
-            }
-
-            if let firstReason = result.reasons.first {
-                Text("Evidence: \(firstReason)")
-                    .foregroundStyle(.secondary)
-                    .help(evidenceHelp)
-            }
-
-            if let firstCaution = result.cautions.first {
-                Text("Caution: \(firstCaution)")
-                    .foregroundStyle(.orange)
-                    .help(cautionHelp)
-            }
-        }
-        .lineLimit(1)
-        .truncationMode(.tail)
-    }
-
-    private var actionControls: some View {
-        HStack(spacing: 6) {
-            if finalistFocusActive {
-                Button("Show All", action: onShowAll)
-            }
-            Button("Back To Group", action: onBack)
-            Button("Inspect Finalists", action: onInspectFinalists)
-                .disabled(result.candidates.isEmpty)
-            Button("Set Manual Winner") {
-                if let selectedFile {
-                    onSetManualWinner(selectedFile)
-                }
-            }
-            .disabled(!selectedFileIsInResult || burstActionsUnavailable)
-            .help(burstActionHelp(selectedFileIsInResult ? "Save the selected frame as the manual burst winner" : "Select a frame in this burst"))
-            if canApplyOneClickCulling {
-                Button("Keep Best", action: onKeepBest)
-                    .buttonStyle(.borderedProminent)
-                    .tint(.green)
-                    .disabled(burstActionsUnavailable)
-                    .help(burstActionHelp("Rate best frame and reject the others"))
-                Button("Keep Top 2", action: onKeepTopTwo)
-                    .disabled(burstActionsUnavailable)
-                    .help(burstActionHelp("Rate the top two frames and reject the others"))
-            }
-        }
-        .controlSize(.mini)
-    }
-
-    private var evidenceHelp: String {
-        result.reasons.joined(separator: "\n")
-    }
-
-    private var cautionHelp: String {
-        result.cautions.joined(separator: "\n")
-    }
-
-    private var selectedFileIsInResult: Bool {
-        guard let selectedFile else { return false }
-        return result.fileIDs.contains(selectedFile.id)
-    }
-
-    private func burstActionHelp(_ fallback: String) -> String {
-        burstActionsUnavailable ? "Unavailable while SAM3 masks are being created" : fallback
+    private var inspectorHint: String {
+        inspectorIsPresented ? "Press I to close Inspector" : "Press I to open Inspector"
     }
 }

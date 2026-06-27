@@ -25,151 +25,28 @@ enum GridRatingFilter: Hashable {
 
 // MARK: - Burst-group section header
 
-/// Renders a single burst-group section header. All sharpness math is done
-/// upstream (see `recomputeGridCache` in `CullingGridView`) and passed in as
-/// `best` so the header body never walks the group's files or reads
-/// `maxScore` during redraw.
+/// Renders a single burst-group section header with review workflow actions.
 private struct BurstGroupHeaderView: View {
     let files: [FileItem]
-    let best: BestInGroupInfo?
     let analysis: BurstAnalysisResult?
-    let hasSharpnessScores: Bool
     @Bindable var viewModel: RawCullViewModel
 
     var body: some View {
-        let presentation = analysis.map { BurstGroupPresentation.make(result: $0, files: files) }
-
-        HStack(alignment: .firstTextBaseline, spacing: 5) {
-            Label(presentation?.title ?? "Burst of \(files.count) photos", systemImage: "square.stack.3d.up")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-
-            if let presentation {
-                BurstStatusBadgeView(title: presentation.confidenceLabel, color: badgeColor)
-
-                if let stateBadge {
-                    BurstStatusBadgeView(title: stateBadge.title, color: stateBadge.color)
-                }
-
-                if presentation.showsAppliedStatus {
-                    BurstStatusBadgeView(title: "Applied", color: .blue)
-                }
-
-                Text(presentation.decision)
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.primary)
-                    .lineLimit(1)
-                    .help(presentation.explanation)
-            } else if let best {
-                Text(bestLabel(best))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+        HStack(spacing: 3) {
+            Button("Open burst") {
+                viewModel.compareBurstGroup(files)
             }
-
-            if !hasSharpnessScores {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .font(.caption2)
-                    .foregroundStyle(.orange)
-                    .help("Run Sharpness Scoring to enable Keep Best")
-                    .accessibilityLabel("Run Sharpness Scoring to enable Keep Best")
-            }
-
-            if let deepResult {
-                BurstStatusBadgeView(title: deepResult.confidence.title, color: deepBadgeColor(deepResult.confidence))
-                Text(deepResult.recommendationLabel)
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.primary)
-                    .lineLimit(1)
-                    .help(deepResult.explanation)
-            }
-
-            Spacer(minLength: 6)
-
-            HStack(spacing: 3) {
-                actionButtons
-            }
-        }
-        .padding(.horizontal, 6)
-        .padding(.vertical, 3)
-        .background(Color(nsColor: .controlBackgroundColor).opacity(0.6), in: RoundedRectangle(cornerRadius: 4))
-    }
-
-    @ViewBuilder
-    private var actionButtons: some View {
-        let presentation = analysis.map { BurstGroupPresentation.make(result: $0, files: files) }
-
-        if canApplyOneClickCulling {
-            keepBestButton(title: presentation?.primaryActionTitle ?? "Keep best", prominent: true)
-            compareButton()
-            deepReviewButton()
-            keepTopTwoButton(prominent: false)
-        } else if presentation?.primaryAction == .compare {
-            compareButton(title: presentation?.primaryActionTitle ?? "Compare", prominent: true)
-            deepReviewButton()
-            if analysis?.confidence == .medium {
-                keepTopTwoButton(prominent: false)
-                keepBestButton(title: "Keep best", prominent: false)
-            }
-        } else {
-            compareButton(prominent: true)
-            deepReviewButton()
-        }
-
-        reviewStateButtons
-
-        if viewModel.lastBurstUndoEntry?.groupID == analysis?.groupID {
-            Button("Undo") {
-                viewModel.undoLastBurstAction()
-            }
-            .font(.caption)
             .controlSize(.mini)
+            .buttonStyle(.borderedProminent)
             .disabled(viewModel.isCreatingSAM3Masks)
-            .help(burstActionHelp("Undo the last burst action"))
-        }
-    }
+            .help(burstActionHelp("Open this burst for review"))
 
-    @ViewBuilder
-    private var reviewStateButtons: some View {
-        if let groupID = analysis?.groupID {
-            Divider().frame(height: 14)
+            deepReviewButton()
 
-            switch analysis?.reviewState {
-            case .deferred:
-                Button("Needs Review") {
-                    viewModel.markBurstGroupNeedsReview(groupID: groupID)
-                }
-                .font(.caption)
-                .controlSize(.mini)
-                .disabled(viewModel.isCreatingSAM3Masks)
-                .help(burstActionHelp("Return this burst to the active review queue"))
-
+            if let groupID = analysis?.groupID {
                 Button("Reviewed") {
                     viewModel.markBurstGroupReviewed(groupID: groupID)
                 }
-                .font(.caption)
-                .controlSize(.mini)
-                .disabled(viewModel.isCreatingSAM3Masks)
-                .help(burstActionHelp("Mark this burst as reviewed"))
-
-            case .reviewed:
-                Button("Needs Review") {
-                    viewModel.markBurstGroupNeedsReview(groupID: groupID)
-                }
-                .font(.caption)
-                .controlSize(.mini)
-                .disabled(viewModel.isCreatingSAM3Masks)
-                .help(burstActionHelp("Return this burst to the active review queue"))
-
-            case .decisionApplied, .manualWinnerOverride:
-                EmptyView()
-
-            default:
-                Button("Reviewed") {
-                    viewModel.markBurstGroupReviewed(groupID: groupID)
-                }
-                .font(.caption)
                 .controlSize(.mini)
                 .disabled(viewModel.isCreatingSAM3Masks)
                 .help(burstActionHelp("Mark this burst as reviewed"))
@@ -177,70 +54,16 @@ private struct BurstGroupHeaderView: View {
                 Button("Defer") {
                     viewModel.deferBurstGroup(groupID: groupID)
                 }
-                .font(.caption)
                 .controlSize(.mini)
                 .disabled(viewModel.isCreatingSAM3Masks)
                 .help(burstActionHelp("Defer this burst for later review"))
             }
-        }
-    }
 
-    @ViewBuilder
-    private func keepBestButton(title: String = "Keep best", prominent: Bool) -> some View {
-        if prominent {
-            Button(title) { viewModel.keepBestInGroup(from: files) }
-                .buttonStyle(.borderedProminent)
-                .tint(.green)
-                .font(.caption)
-                .controlSize(.mini)
-                .disabled(viewModel.isCreatingSAM3Masks)
-                .help(burstActionHelp("Rate best frame ★★★ and reject all others"))
-        } else {
-            Button(title) { viewModel.keepBestInGroup(from: files) }
-                .buttonStyle(.bordered)
-                .font(.caption)
-                .controlSize(.mini)
-                .disabled(viewModel.isCreatingSAM3Masks)
-                .help(burstActionHelp("Rate best frame ★★★ and reject all others"))
+            Spacer(minLength: 6)
         }
-    }
-
-    @ViewBuilder
-    private func keepTopTwoButton(prominent: Bool = false) -> some View {
-        if prominent {
-            Button("Keep Top 2") { viewModel.keepTopTwoInGroup(from: files) }
-                .buttonStyle(.borderedProminent)
-                .font(.caption)
-                .controlSize(.mini)
-                .disabled(!hasSharpnessScores || viewModel.isCreatingSAM3Masks)
-                .help(burstActionHelp("Rate best frame ★★★, second frame ★★, and reject all others"))
-        } else {
-            Button("Keep Top 2") { viewModel.keepTopTwoInGroup(from: files) }
-                .buttonStyle(.bordered)
-                .font(.caption)
-                .controlSize(.mini)
-                .disabled(!hasSharpnessScores || viewModel.isCreatingSAM3Masks)
-                .help(burstActionHelp("Rate best frame ★★★, second frame ★★, and reject all others"))
-        }
-    }
-
-    @ViewBuilder
-    private func compareButton(title: String = "Compare", prominent: Bool = false) -> some View {
-        if prominent {
-            Button(title) { viewModel.compareBurstGroup(files) }
-                .buttonStyle(.borderedProminent)
-                .font(.caption)
-                .controlSize(.mini)
-                .disabled(viewModel.isCreatingSAM3Masks)
-                .help(burstActionHelp("Open this burst for review"))
-        } else {
-            Button(title) { viewModel.compareBurstGroup(files) }
-                .buttonStyle(.bordered)
-                .font(.caption)
-                .controlSize(.mini)
-                .disabled(viewModel.isCreatingSAM3Masks)
-                .help(burstActionHelp("Open this burst for review"))
-        }
+        .font(.caption2.weight(.semibold))
+        .padding(.horizontal, 6)
+        .padding(.vertical, 3)
     }
 
     private func deepReviewButton() -> some View {
@@ -250,10 +73,13 @@ private struct BurstGroupHeaderView: View {
             }
         } label: {
             if viewModel.deepAIReviewModel.isRunning, viewModel.deepAIReviewModel.activeGroupID == groupID {
-                ProgressView()
-                    .controlSize(.mini)
+                HStack(spacing: 4) {
+                    ProgressView()
+                        .controlSize(.mini)
+                    Text("Deep Review")
+                }
             } else {
-                Text(deepResult == nil ? "Deep Review" : "Deep")
+                Text("Deep Review")
             }
         }
         .buttonStyle(.bordered)
@@ -267,74 +93,10 @@ private struct BurstGroupHeaderView: View {
         viewModel.isCreatingSAM3Masks ? "Unavailable while SAM3 masks are being created" : fallback
     }
 
-    private func bestLabel(_ best: BestInGroupInfo) -> String {
-        let prefix = best.isManualWinner ? "Manual winner" : "Best"
-        if let pct = best.percent {
-            return "\(prefix): \(best.fileName) (\(pct)%)"
-        }
-        return "\(prefix): \(best.fileName)"
-    }
-
-    private var canApplyOneClickCulling: Bool {
-        analysis?.canApplyOneClickCulling(hasSharpnessScores: hasSharpnessScores) ?? false
-    }
-
     private var groupID: Int? {
         files.lazy.compactMap { viewModel.similarityModel.burstGroupLookup[$0.id] }.first
     }
 
-    private var deepResult: DeepAIReviewResult? {
-        groupID.flatMap { viewModel.deepAIReviewResult(for: $0) }
-    }
-
-    private var badgeColor: Color {
-        if analysis?.reviewState == .manualWinnerOverride {
-            return .orange
-        }
-        switch analysis?.confidence {
-        case .high: return .green
-        case .medium: return .orange
-        case .low, .none: return .gray
-        }
-    }
-
-    private func deepBadgeColor(_ confidence: DeepAIReviewConfidence) -> Color {
-        switch confidence {
-        case .high: .green
-        case .medium: .orange
-        case .low: .gray
-        }
-    }
-
-    private var stateBadge: (title: String, color: Color)? {
-        switch analysis?.reviewState {
-        case .needsReview:
-            ("Needs Review", .purple)
-
-        case .reviewed:
-            ("Reviewed", .blue)
-
-        case .deferred:
-            ("Deferred", .gray)
-
-        default:
-            nil
-        }
-    }
-}
-
-private struct BurstStatusBadgeView: View {
-    let title: String
-    let color: Color
-
-    var body: some View {
-        Text(title)
-            .font(.caption2.weight(.semibold))
-            .foregroundStyle(.white)
-            .padding(.horizontal, 4)
-            .padding(.vertical, 1)
-            .background(color.opacity(0.85), in: RoundedRectangle(cornerRadius: 3))
-    }
 }
 
 struct BatchBadgeSelectionItem: Identifiable {
@@ -433,7 +195,6 @@ struct CullingGridView<Header: View>: View {
     // Recomputed only when `gridCacheKey` changes, so hover/selection
     // invalidations do not rebuild these O(n) / O(m·k) structures.
     @State private var visibleBurstGroups: [CullingGridVisibleBurstGroup] = []
-    @State private var bestInGroup: [Int: BestInGroupInfo] = [:]
     @State private var hasSharpnessScoresSnapshot: Bool = false
 
     var body: some View {
@@ -479,9 +240,7 @@ struct CullingGridView<Header: View>: View {
                                         if vg.files.count > 1 {
                                             BurstGroupHeaderView(
                                                 files: vg.files,
-                                                best: bestInGroup[vg.id],
                                                 analysis: viewModel.burstAnalysisResult(for: vg.id),
-                                                hasSharpnessScores: hasSharpnessScoresSnapshot,
                                                 viewModel: viewModel,
                                             )
                                             .padding(.top, 4)
@@ -678,11 +437,8 @@ struct CullingGridView<Header: View>: View {
             files: files,
             burstGroups: reviewFilteredBurstGroups,
             scores: viewModel.sharpnessModel.scores,
-            maxScore: viewModel.sharpnessModel.maxScore,
-            burstAnalysisResults: viewModel.burstAnalysisResults,
         )
         visibleBurstGroups = cache.visibleBurstGroups
-        bestInGroup = cache.bestInGroup
         hasSharpnessScoresSnapshot = cache.hasSharpnessScoresSnapshot
     }
 
