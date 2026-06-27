@@ -527,6 +527,34 @@ struct FocusNumericHelperTests {
     }
 
     @Test(.tags(.smoke))
+    func `SAM subject mask closure sampler matches array wrapper`() throws {
+        let width = 20
+        let height = 10
+        let values = (0 ..< width * height).map { Float($0) / Float(width * height) }
+        let mask = try #require(makeAlphaMask(width: width, height: height) { col, _ in
+            col < width / 2
+        })
+
+        let arrayAnalysis = try #require(FocusMaskEngine.analyzeSAMSubjectMask(
+            laplacianRedValues: values,
+            width: width,
+            height: height,
+            subjectMask: mask,
+            afPoint: CGPoint(x: 0.25, y: 0.50),
+        ))
+        let closureAnalysis = try #require(FocusMaskEngine.analyzeSAMSubjectMask(
+            laplacianRedValueAt: { values[$0] },
+            laplacianRedValueCount: values.count,
+            width: width,
+            height: height,
+            subjectMask: mask,
+            afPoint: CGPoint(x: 0.25, y: 0.50),
+        ))
+
+        #expect(closureAnalysis == arrayAnalysis)
+    }
+
+    @Test(.tags(.smoke))
     func `SAM subject mask reports AF outside without dropping score`() throws {
         let width = 20
         let height = 10

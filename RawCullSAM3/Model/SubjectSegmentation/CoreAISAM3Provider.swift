@@ -9,7 +9,7 @@ extension ImageSegmenter: @retroactive @unchecked Sendable {}
 extension CoreAISegmentationEngine: @retroactive @unchecked Sendable {}
 
 actor CoreAISAM3Provider: SubjectSegmentationProvider {
-    nonisolated let modelVersion = "coreai-sam3-local"
+    nonisolated let modelVersion: String
 
     private let resourcesURL: URL?
     private var model: LoadedSAM3Model?
@@ -18,6 +18,7 @@ actor CoreAISAM3Provider: SubjectSegmentationProvider {
 
     init(resourcesURL: URL? = SAM3ModelResourceManager.installedModelURL()) {
         self.resourcesURL = resourcesURL
+        self.modelVersion = SAM3ModelIdentity.modelVersion(resourcesURL: resourcesURL)
     }
 
     func segment(_ request: SubjectSegmentationRequest) async throws -> SubjectSegmentationResult {
@@ -65,7 +66,7 @@ actor CoreAISAM3Provider: SubjectSegmentationProvider {
             inputSize: request.inputSize,
             outputSize: outputSize,
             resourceName: Self.resourceName(in: resourcesURL),
-            assetName: Self.assetName(in: resourcesURL),
+            assetName: SAM3ModelIdentity.assetName(in: resourcesURL),
         )
         return SubjectSegmentationResult(
             fileID: request.fileID,
@@ -102,7 +103,7 @@ actor CoreAISAM3Provider: SubjectSegmentationProvider {
 
         let loadedModel: LoadedSAM3Model
         do {
-            let assetName = Self.assetName(in: segmenterResourcesURL) ?? "sam3_float16.aimodel"
+            let assetName = SAM3ModelIdentity.assetName(in: segmenterResourcesURL) ?? "sam3_float16.aimodel"
             let modelURL = segmenterResourcesURL.appendingPathComponent(assetName)
             let tokenizer = try CLIPTokenizer(
                 folder: segmenterResourcesURL.appendingPathComponent("tokenizer", isDirectory: true),
@@ -140,7 +141,7 @@ actor CoreAISAM3Provider: SubjectSegmentationProvider {
         return String(reflecting: error)
     }
 
-    private nonisolated static func resourcesURLForImageSegmenter(_ resourcesURL: URL) throws -> URL {
+    nonisolated static func resourcesURLForImageSegmenter(_ resourcesURL: URL) throws -> URL {
         let fileManager = FileManager.default
         let nestedTokenizerURL = resourcesURL.appendingPathComponent("tokenizer/tokenizer.json")
         if fileManager.fileExists(atPath: nestedTokenizerURL.path) {
@@ -149,7 +150,7 @@ actor CoreAISAM3Provider: SubjectSegmentationProvider {
 
         let flatTokenizerURL = resourcesURL.appendingPathComponent("tokenizer.json")
         guard fileManager.fileExists(atPath: flatTokenizerURL.path),
-              let assetName = assetName(in: resourcesURL)
+              let assetName = SAM3ModelIdentity.assetName(in: resourcesURL)
         else {
             return resourcesURL
         }
@@ -161,10 +162,7 @@ actor CoreAISAM3Provider: SubjectSegmentationProvider {
 
         let shimURL = fileManager.temporaryDirectory
             .appendingPathComponent("RawCullSAM3", isDirectory: true)
-            .appendingPathComponent("CoreAISAM3Bundle", isDirectory: true)
-        if fileManager.fileExists(atPath: shimURL.path) {
-            try fileManager.removeItem(at: shimURL)
-        }
+            .appendingPathComponent("CoreAISAM3Bundle-\(UUID().uuidString)", isDirectory: true)
         try fileManager.createDirectory(
             at: shimURL.appendingPathComponent("tokenizer", isDirectory: true),
             withIntermediateDirectories: true,
@@ -196,7 +194,7 @@ actor CoreAISAM3Provider: SubjectSegmentationProvider {
 
     private nonisolated static func loadFailureMessage(for error: Error, resourcesURL: URL) -> String {
         var message = message(for: error)
-        guard let assetName = assetName(in: resourcesURL),
+        guard let assetName = SAM3ModelIdentity.assetName(in: resourcesURL),
               assetName.hasSuffix(".aimodelc"),
               assetName.contains(".h16c.")
         else {
@@ -210,34 +208,8 @@ actor CoreAISAM3Provider: SubjectSegmentationProvider {
         return message
     }
 
-    private nonisolated static func assetName(in resourcesURL: URL?) -> String? {
-        guard let resourcesURL else { return nil }
-        let metadataURL = resourcesURL.appendingPathComponent("metadata.json")
-        guard let data = try? Data(contentsOf: metadataURL),
-              let metadata = try? JSONDecoder().decode(ModelBundleMetadata.self, from: data)
-        else {
-            return resourcesURL.pathExtension.isEmpty ? nil : resourcesURL.lastPathComponent
-        }
-        return metadata.assets["main"]
-    }
-
     private nonisolated static func resourceName(in resourcesURL: URL?) -> String? {
-        guard let resourcesURL else { return nil }
-        let metadataURL = resourcesURL.appendingPathComponent("metadata.json")
-        guard let data = try? Data(contentsOf: metadataURL),
-              let metadata = try? JSONDecoder().decode(ModelBundleMetadata.self, from: data)
-        else {
-            return resourcesURL.lastPathComponent
-        }
-        if resourcesURL.lastPathComponent == "Resources" {
-            return metadata.name
-        }
-        return resourcesURL.lastPathComponent
-    }
-
-    private nonisolated struct ModelBundleMetadata: Decodable {
-        let name: String?
-        let assets: [String: String]
+        SAM3ModelIdentity.resourceName(in: resourcesURL)
     }
 
     private struct LoadedSAM3Model {

@@ -45,6 +45,29 @@ private func makeSAM3CacheSource(in root: URL, name: String = "source.ARW", data
     return url
 }
 
+private func makeFlatSAM3ModelResource(
+    in root: URL,
+    name: String = "SAM3Resources",
+    modelName: String = "sam3-test",
+    assetName: String = "sam3_float16.aimodel",
+) throws -> URL {
+    let url = root.appendingPathComponent(name, isDirectory: true)
+    try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+    let metadata = """
+    {
+      "name": "\(modelName)",
+      "assets": {
+        "main": "\(assetName)"
+      }
+    }
+    """
+    try Data(metadata.utf8).write(to: url.appendingPathComponent("metadata.json"))
+    try Data("{}".utf8).write(to: url.appendingPathComponent("tokenizer.json"))
+    try Data("{}".utf8).write(to: url.appendingPathComponent("tokenizer_config.json"))
+    try Data([0, 1, 2, 3]).write(to: url.appendingPathComponent(assetName))
+    return url
+}
+
 private func makeSAM3Result(
     fileID: UUID = UUID(),
     prompt: SubjectSegmentationPrompt = .bird,
@@ -83,6 +106,55 @@ private func makeSAM3Result(
         timing: timing,
         diagnostics: diagnostics,
     )
+}
+
+struct SAM3ModelIdentityTests {
+    @Test
+    func `model version includes metadata name and selected asset`() throws {
+        let root = try makeSAM3CacheTestRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let resourcesURL = try makeFlatSAM3ModelResource(
+            in: root,
+            modelName: "sam3-bird",
+            assetName: "sam3_float16.aimodel",
+        )
+
+        #expect(SAM3ModelIdentity.modelVersion(resourcesURL: resourcesURL) == "coreai-sam3-local:sam3-bird:sam3_float16.aimodel")
+        #expect(CoreAISAM3Provider(resourcesURL: resourcesURL).modelVersion == SAM3ModelIdentity.modelVersion(resourcesURL: resourcesURL))
+    }
+
+    @Test
+    func `model version falls back when metadata cannot be read`() throws {
+        let root = try makeSAM3CacheTestRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let resourcesURL = root.appendingPathComponent("MissingMetadata", isDirectory: true)
+        try FileManager.default.createDirectory(at: resourcesURL, withIntermediateDirectories: true)
+
+        #expect(SAM3ModelIdentity.modelVersion(resourcesURL: resourcesURL) == "coreai-sam3-local")
+    }
+}
+
+struct CoreAISAM3ProviderResourceShimTests {
+    @Test
+    func `flat resource shim copies tokenizer files and uses unique directories`() throws {
+        let root = try makeSAM3CacheTestRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let resourcesURL = try makeFlatSAM3ModelResource(in: root, assetName: "sam3_float16.aimodel")
+
+        let firstShim = try CoreAISAM3Provider.resourcesURLForImageSegmenter(resourcesURL)
+        let secondShim = try CoreAISAM3Provider.resourcesURLForImageSegmenter(resourcesURL)
+
+        #expect(firstShim != secondShim)
+        #expect(FileManager.default.fileExists(atPath: firstShim.appendingPathComponent("metadata.json").path))
+        #expect(FileManager.default.fileExists(atPath: firstShim.appendingPathComponent("tokenizer/tokenizer.json").path))
+        #expect(FileManager.default.fileExists(atPath: firstShim.appendingPathComponent("tokenizer/tokenizer_config.json").path))
+        #expect(FileManager.default.fileExists(atPath: secondShim.appendingPathComponent("tokenizer/tokenizer.json").path))
+
+        let firstAssetPath = firstShim.appendingPathComponent("sam3_float16.aimodel").path
+        let secondAssetPath = secondShim.appendingPathComponent("sam3_float16.aimodel").path
+        #expect(try FileManager.default.destinationOfSymbolicLink(atPath: firstAssetPath) == resourcesURL.appendingPathComponent("sam3_float16.aimodel").path)
+        #expect(try FileManager.default.destinationOfSymbolicLink(atPath: secondAssetPath) == resourcesURL.appendingPathComponent("sam3_float16.aimodel").path)
+    }
 }
 
 struct SAM3MaskDiskCacheTests {

@@ -381,9 +381,27 @@ extension FocusMaskEngine {
         subjectMask: CGImage,
         afPoint: CGPoint?,
     ) -> SAMSubjectMaskAnalysis? {
+        analyzeSAMSubjectMask(
+            laplacianRedValueAt: { laplacianRedValues[$0] },
+            laplacianRedValueCount: laplacianRedValues.count,
+            width: width,
+            height: height,
+            subjectMask: subjectMask,
+            afPoint: afPoint,
+        )
+    }
+
+    nonisolated static func analyzeSAMSubjectMask(
+        laplacianRedValueAt: (Int) -> Float,
+        laplacianRedValueCount: Int,
+        width: Int,
+        height: Int,
+        subjectMask: CGImage,
+        afPoint: CGPoint?,
+    ) -> SAMSubjectMaskAnalysis? {
         guard width > 0,
               height > 0,
-              laplacianRedValues.count >= width * height,
+              laplacianRedValueCount >= width * height,
               subjectMask.width > 0,
               subjectMask.height > 0
         else { return nil }
@@ -415,7 +433,7 @@ extension FocusMaskEngine {
                 let normalizedX = (CGFloat(col) + 0.5) / CGFloat(width)
                 guard maskAlpha[maskIndexForNormalizedPoint(x: normalizedX, y: normalizedY)] > 0 else { continue }
                 maskedCount += 1
-                let v = laplacianRedValues[base + col]
+                let v = laplacianRedValueAt(base + col)
                 if v.isFinite { samples.append(v) }
             }
         }
@@ -905,7 +923,8 @@ extension FocusMaskEngine {
 
         let samMaskAnalysis: SAMSubjectMaskAnalysis? = if let subjectMask {
             Self.analyzeSAMSubjectMask(
-                laplacianRedValues: (0 ..< pixelCount).map { redAt($0) },
+                laplacianRedValueAt: { redAt($0) },
+                laplacianRedValueCount: pixelCount,
                 width: width,
                 height: height,
                 subjectMask: subjectMask,

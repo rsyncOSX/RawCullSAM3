@@ -3,7 +3,7 @@ import RawCullCore
 
 enum SAM3SubjectMaskCacheReader {
     static let prompt: SubjectSegmentationPrompt = .subject
-    static let modelVersion = "coreai-sam3-local"
+    static let modelVersion = SAM3ModelIdentity.modelVersion()
     static let inputMaxSide = 4320
 
     static func loadCachedMask(
