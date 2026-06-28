@@ -786,26 +786,6 @@ extension FocusMaskEngine {
         )
     }
 
-    nonisolated static func conservativeSubjectScore(
-        broadSubjectScore: Float?,
-        afLocalPatchScore: Float?,
-        subjectInteriorPatchScore: Float?,
-    ) -> (score: Float?, localDetailScore: Float?) {
-        let localDetailScore: Float? = switch (afLocalPatchScore, subjectInteriorPatchScore) {
-        case let (af?, subject?): af * 0.6 + subject * 0.4
-        case let (af?, nil): af
-        case let (nil, subject?): subject
-        default: nil
-        }
-        let score: Float? = switch (broadSubjectScore, localDetailScore) {
-        case let (broad?, local?): broad * 0.75 + local * 0.25
-        case let (broad?, nil): broad
-        case let (nil, local?): local
-        default: nil
-        }
-        return (score, localDetailScore)
-    }
-
     nonisolated static func classifyFocusFailure(
         globalScore: Float?,
         subjectScore: Float?,

@@ -284,19 +284,6 @@ struct ComparisonGridView: View {
         viewModel.selectedFileID = files[0].id
     }
 
-    private func inspectFinalists() {
-        let finalistIDs = ComparisonFinalistFocus.focusedIDs(from: burstComparisonResult)
-        guard !finalistIDs.isEmpty else { return }
-        finalistFocusActive = true
-        viewModel.selectedFileID = finalistIDs[0]
-        showCandidateInspector = true
-    }
-
-    private func showAllCandidates() {
-        finalistFocusActive = false
-        selectFirstComparisonFileIfNeeded()
-    }
-
     private func applyRating(_ rating: Int) -> KeyPress.Result {
         guard let file = selectedComparisonFile else { return .ignored }
         viewModel.updateRatingAndAdvance(for: file, rating: rating, in: files)

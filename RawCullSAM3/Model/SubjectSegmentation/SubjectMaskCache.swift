@@ -11,7 +11,4 @@ actor SubjectMaskCache {
         entries[key] = SubjectMaskCacheEntry(result: result)
     }
 
-    func removeAll() {
-        entries.removeAll()
-    }
 }

@@ -88,38 +88,11 @@ nonisolated struct SubjectSegmentationResult {
 }
 
 nonisolated enum SubjectSegmentationError: Error, Equatable {
-    case helperUnavailable
-    case timeout
     case noMask
     case decodeFailure
     case cancelled
     case staleResponse
     case helperError(String)
-
-    nonisolated var displayMessage: String {
-        switch self {
-        case .helperUnavailable:
-            "Core AI SAM3 unavailable"
-
-        case .timeout:
-            "Core AI SAM3 timed out"
-
-        case .noMask:
-            "No Core AI mask found"
-
-        case .decodeFailure:
-            "Could not decode Core AI mask"
-
-        case .cancelled:
-            "Core AI SAM3 request cancelled"
-
-        case .staleResponse:
-            "Ignored stale Core AI SAM3 result"
-
-        case let .helperError(message):
-            message.isEmpty ? "Core AI SAM3 failed" : message
-        }
-    }
 }
 
 nonisolated struct SubjectSegmentationRequest {

@@ -17,13 +17,6 @@ actor SAM3MaskCatalogIndex {
 
     // MARK: - Public API
 
-    /// Clears any in-flight build and resets the inventory.
-    func reset() {
-        buildTask?.cancel()
-        buildTask = nil
-        inventory = [:]
-    }
-
     /// Starts a new incremental build for `files`, cancelling any prior run.
     /// Each entry is inserted into `inventory` on the actor as soon as it is ready.
     /// - Parameters:

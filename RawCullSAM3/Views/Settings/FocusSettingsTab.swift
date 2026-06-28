@@ -7,7 +7,9 @@ struct FocusSettingsTab: View {
         SettingsViewModel.shared
     }
 
+    // periphery:ignore
     @State private var showResetConfirmation = false
+    // periphery:ignore
     @State private var showSaveConfirmation = false
 
     var body: some View {

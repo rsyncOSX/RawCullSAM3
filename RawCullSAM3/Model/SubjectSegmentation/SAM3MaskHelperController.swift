@@ -12,10 +12,6 @@ final class SAM3MaskHelperController {
     private var errorBuffer = Data()
     private let decoder = JSONDecoder()
 
-    var isRunning: Bool {
-        process?.isRunning == true
-    }
-
     init(modelResourceManager: SAM3ModelResourceManager = SAM3ModelResourceManager()) {
         self.modelResourceManager = modelResourceManager
     }

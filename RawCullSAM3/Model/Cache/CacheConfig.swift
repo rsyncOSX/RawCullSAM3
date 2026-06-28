@@ -9,7 +9,6 @@ import Foundation
 
 nonisolated enum CacheRecommendationPolicy {
     static let megabyte = 1024 * 1024
-    static let sixteenGB = 16 * 1024 * megabyte
     static let thirtyTwoGB = 32 * 1024 * megabyte
     static let sixtyFourGB = 64 * 1024 * megabyte
     static let freeReserveMB = 3 * 1024

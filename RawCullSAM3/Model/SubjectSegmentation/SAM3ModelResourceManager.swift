@@ -57,14 +57,6 @@ nonisolated struct SAM3ModelResourceManager {
         Self().installedModelURL()
     }
 
-    static func modelStatus() -> SAM3ModelStatus {
-        Self().modelStatus()
-    }
-
-    static func validateModelBundle(at url: URL) -> Bool {
-        Self().validateModelBundle(at: url)
-    }
-
     func installedModelURL() -> URL? {
         modelStatus().modelURL
     }

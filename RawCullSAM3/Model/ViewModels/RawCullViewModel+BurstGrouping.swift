@@ -482,21 +482,6 @@ extension RawCullViewModel {
         markDecisionApplied(groupID: groupID)
     }
 
-    func setManualBurstWinner(_ winner: FileItem, in groupFiles: [FileItem]) {
-        guard let selectedSource,
-              !isCreatingSAM3Masks,
-              groupFiles.contains(where: { $0.id == winner.id })
-        else { return }
-
-        let override = BurstWinnerOverride(
-            winnerFileName: winner.name,
-            memberFileNames: groupFiles.map(\.name),
-        )
-        cullingModel.upsertBurstWinnerOverride(override, in: selectedSource.url)
-        updateRating(for: winner, rating: 3)
-        applyManualWinnerOverrides(files: burstAnalysisTargetFiles)
-    }
-
     func markDeepAIReviewWinner(_ result: DeepAIReviewResult?, in groupFiles: [FileItem]) {
         guard let selectedSource,
               !isCreatingSAM3Masks,
@@ -584,11 +569,6 @@ extension RawCullViewModel {
             guard let result = burstAnalysisResults[group.id] else { return false }
             return BurstReviewQueuePolicy.includes(result, filter: burstReviewQueueFilter)
         }
-    }
-
-    func markBurstGroupNeedsReview(groupID: Int) {
-        guard !isCreatingSAM3Masks else { return }
-        setBurstReviewState(.needsReview, groupID: groupID)
     }
 
     func markBurstGroupReviewed(groupID: Int) {

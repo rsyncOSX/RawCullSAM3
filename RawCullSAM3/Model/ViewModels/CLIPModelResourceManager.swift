@@ -57,14 +57,6 @@ nonisolated struct CLIPModelResourceManager {
         Self().installedModelURL()
     }
 
-    static func modelStatus() -> CLIPModelStatus {
-        Self().modelStatus()
-    }
-
-    static func validateModelBundle(at url: URL) -> Bool {
-        Self().validateModelBundle(at: url)
-    }
-
     static func cacheIdentifier(for modelURL: URL?) -> String? {
         guard let modelURL else { return nil }
         let metadataURL = modelURL.appendingPathComponent("metadata.json")

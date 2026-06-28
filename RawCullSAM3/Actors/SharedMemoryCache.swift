@@ -536,10 +536,6 @@ actor SharedMemoryCache {
         await sam3MaskCache.getDiskCacheSize()
     }
 
-    func pruneSAM3MaskCache(maxAgeInDays: Int = 90) async {
-        await sam3MaskCache.pruneCache(maxAgeInDays: maxAgeInDays)
-    }
-
     func clearSAM3MaskCache() async {
         await sam3MaskCache.removeAll()
     }

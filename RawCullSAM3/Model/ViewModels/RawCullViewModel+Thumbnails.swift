@@ -117,14 +117,6 @@ extension RawCullViewModel {
         }
     }
 
-    func requestCreateSAM3MasksConfirmation() {
-        guard !isCreatingSAM3Masks,
-              !sam3MaskCreationTargetFiles.isEmpty
-        else { return }
-        alertType = .createSAM3Masks
-        showingAlert = true
-    }
-
     func startSAM3MaskCreationForFilteredCatalog() {
         startSAM3MaskCreationHelperForCatalog()
     }

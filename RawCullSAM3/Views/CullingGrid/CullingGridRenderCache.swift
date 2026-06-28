@@ -7,19 +7,12 @@ struct CullingGridVisibleBurstGroup: Identifiable, Equatable {
 }
 
 struct CullingGridRenderCacheKey: Hashable {
-    // periphery:ignore
     let burstGroupsCount: Int
-    // periphery:ignore
     let burstStructureHash: Int
-    // periphery:ignore
     let filesCount: Int
-    // periphery:ignore
     let filesHash: Int
-    // periphery:ignore
     let ratingFilter: GridRatingFilter
-    // periphery:ignore
     let reviewQueueFilter: BurstReviewQueueFilter
-    // periphery:ignore
     let scoresHash: Int
 
     init(

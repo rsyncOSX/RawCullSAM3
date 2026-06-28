@@ -30,10 +30,6 @@ actor SubjectSegmentationActor {
         self.maxSide = maxSide
     }
 
-    func cancelActiveRequest() {
-        activeRequestID = nil
-    }
-
     func partitionByValidDiskCache(
         files: [FileItem],
         prompt: SubjectSegmentationPrompt,
