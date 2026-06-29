@@ -25,6 +25,10 @@ struct RawCullMainView: View {
         "\(viewModel.selectedSource?.name ?? "Files") (\(viewModel.filteredFiles.count) files)"
     }
 
+    private var showsJPGExtractionProgressOverlay: Bool {
+        viewModel.currentExtractAndSaveJPGsActor != nil && viewModel.mainViewMode != .loupe
+    }
+
     var body: some View {
         ZStack {
             Group {
@@ -66,6 +70,30 @@ struct RawCullMainView: View {
                 )
                 .transition(.scale(scale: 0.96).combined(with: .opacity))
                 .zIndex(21)
+            }
+
+            if showsJPGExtractionProgressOverlay {
+                VStack {
+                    Spacer()
+
+                    ProgressCount(
+                        progress: $viewModel.progress,
+                        estimatedSeconds: $viewModel.estimatedSeconds,
+                        max: viewModel.max,
+                        statusText: "Extracting JPGs",
+                    )
+                    .frame(maxWidth: 480)
+                    .padding(16)
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12)
+                            .stroke(Color.primary.opacity(0.12), lineWidth: 1),
+                    )
+                    .shadow(color: .black.opacity(0.25), radius: 12, y: 4)
+                    .padding(.bottom, 24)
+                }
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+                .zIndex(12)
             }
         }
         .sheet(item: $viewModel.activeSheet) { sheet in
