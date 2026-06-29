@@ -623,7 +623,7 @@
 				CODE_SIGN_ENTITLEMENTS = RawCullSAM3.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 221;
+				CURRENT_PROJECT_VERSION = 222;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = 93M47F4H9T;
 				ENABLE_APP_SANDBOX = YES;
@@ -662,7 +662,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 2.2.1;
+				MARKETING_VERSION = 2.2.2;
 				MTLLINKER_FLAGS = "-fcikernel";
 				MTL_COMPILER_FLAGS = "-fcikernel";
 				MTL_LANGUAGE_REVISION = Metal40;
@@ -697,7 +697,7 @@
 				CODE_SIGN_ENTITLEMENTS = RawCullSAM3.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 221;
+				CURRENT_PROJECT_VERSION = 222;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = 93M47F4H9T;
 				ENABLE_APP_SANDBOX = YES;
@@ -736,7 +736,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 2.2.1;
+				MARKETING_VERSION = 2.2.2;
 				MTLLINKER_FLAGS = "-fcikernel";
 				MTL_COMPILER_FLAGS = "-fcikernel";
 				MTL_LANGUAGE_REVISION = Metal40;
