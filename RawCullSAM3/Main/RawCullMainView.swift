@@ -80,6 +80,9 @@ struct RawCullMainView: View {
                     scoringQuality: Bindable(viewModel.sharpnessModel).scoringQuality,
                     scoringSource: Bindable(viewModel.sharpnessModel).scoringSource,
                 )
+
+            case .extractJPGs:
+                ExtractJPGsSheetView(viewModel: viewModel)
             }
         }
         .sheet(isPresented: $viewModel.showSavedFiles) {
@@ -87,12 +90,6 @@ struct RawCullMainView: View {
         }
         .alert(viewModel.alertTitle, isPresented: $viewModel.showingAlert) {
             switch viewModel.alertType {
-            case .extractJPGs:
-                Button("Extract", role: .destructive) {
-                    extractFilteredFilesJPGS()
-                }
-                .frame(width: 100)
-
             case .createJPGDiskCache:
                 Button("Create Cache") {
                     viewModel.startScanAndExtractJPGs()
@@ -143,6 +140,13 @@ struct RawCullMainView: View {
                 gridthumbnailviewmodel.close()
             }
         }
+        .focusedSceneValue(\.extractJPGs, $viewModel.focusExtractJPGs)
+        .focusedSceneValue(\.aborttask, $viewModel.focusaborttask)
+        .onChange(of: viewModel.focusExtractJPGs) { _, shouldPresent in
+            guard shouldPresent else { return }
+            viewModel.focusExtractJPGs = false
+            viewModel.presentExtractJPGsSheet()
+        }
     }
 
     // MARK: - Loupe mode (3-column split)
@@ -182,8 +186,6 @@ struct RawCullMainView: View {
         .task {
             columnVisibility = .doubleColumn
         }
-        .focusedSceneValue(\.extractJPGs, $viewModel.focusExtractJPGs)
-        .focusedSceneValue(\.aborttask, $viewModel.focusaborttask)
         .task {
             let handlers = CreateFileHandlers().createFileHandlers(
                 fileHandler: { _ in },

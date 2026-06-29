@@ -35,6 +35,8 @@ final class RawCullViewModel {
 
     var focusaborttask: Bool = false
     var focusExtractJPGs: Bool = false
+    var extractJPGExportMode: ExtractJPGExportMode = .embeddedJPG
+    var extractJPGDestination: ARWSourceCatalog?
 
     var showcopyARWFilesView: Bool = false
     var alertType: AlertType?
@@ -160,7 +162,6 @@ final class RawCullViewModel {
 
     var alertTitle: String {
         switch alertType {
-        case .extractJPGs: "Extract JPGs"
         case .createJPGDiskCache: "Create JPG Disk Cache"
         case .createSAM3Masks: "Create SAM3 Masks"
         case .clearRatedFiles: "Clear Rated Images"
@@ -170,8 +171,6 @@ final class RawCullViewModel {
 
     var alertMessage: String {
         switch alertType {
-        case .extractJPGs: "Are you sure you want to extract JPG images from ARW files?"
-
         case .createJPGDiskCache:
             "RawCull will create missing extracted JPG preview cache images for \(files.count) RAW files in this catalog. Existing cached images will be skipped."
 

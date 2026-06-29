@@ -25,13 +25,5 @@ struct RawCullDetailContainerView: View {
                 abort: abort,
             )
         }
-
-        if viewModel.focusExtractJPGs {
-            ExtractJPGsFocusView(
-                selectedSource: viewModel.selectedSource,
-                alertType: $viewModel.alertType,
-                showingAlert: $viewModel.showingAlert,
-            )
-        }
     }
 }
